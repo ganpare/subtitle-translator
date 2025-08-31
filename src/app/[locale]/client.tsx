@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
 import { Tabs, TabsProps, Typography } from "antd";
 import { VideoCameraOutlined, QuestionCircleOutlined } from "@ant-design/icons";
 import TranslationSettings from "@/app/components/TranslationSettings";
@@ -21,7 +21,12 @@ const ClientPage = () => {
   );
   // 使用时间戳来强制重新渲染
   const [activeKey, setActiveKey] = useState("basic");
-  const [refreshKey, setRefreshKey] = useState(Date.now());
+  // Use a stable initial value during SSR to prevent hydration mismatch
+  const [refreshKey, setRefreshKey] = useState<number>(0);
+
+  useEffect(() => {
+    setRefreshKey(Date.now());
+  }, []);
 
   const handleTabChange = useCallback((key) => {
     setActiveKey(key);

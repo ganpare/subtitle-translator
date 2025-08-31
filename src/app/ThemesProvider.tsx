@@ -7,7 +7,7 @@ import { AntdRegistry } from "@ant-design/nextjs-registry";
 
 export default function ThemesProvider({ children }: { children: ReactNode }) {
   return (
-    <NextThemesProvider attribute="class" defaultTheme="dark">
+  <NextThemesProvider attribute="class" defaultTheme="system" enableSystem>
       <AntdConfigProvider>{children}</AntdConfigProvider>
     </NextThemesProvider>
   );

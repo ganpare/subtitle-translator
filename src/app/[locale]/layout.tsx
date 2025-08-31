@@ -32,13 +32,15 @@ export default async function LocaleLayout({ children, params }: { children: Rea
   const direction = getLangDir(locale);
   const messages = await getMessages();
   return (
-    <html lang={locale} dir={direction}>
+    <html lang={locale} dir={direction} suppressHydrationWarning>
       <GoogleTagManager gtmId="GTM-WBM6XHGB" />
       <body>
         <NextIntlClientProvider messages={messages}>
           <ThemesProvider>
             <Navigation />
-            <div className="max-w-7xl mt-2 mx-auto p-4">{children}</div>
+            <div className="max-w-7xl mt-2 mx-auto p-4" suppressHydrationWarning>
+              {children}
+            </div>
           </ThemesProvider>
         </NextIntlClientProvider>
       </body>

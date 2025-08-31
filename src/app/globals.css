@@ -25,3 +25,23 @@ body {
     )
     rgb(var(--background-start-rgb));
 } */
+
+/* Ensure app background follows Ant Design theme tokens (with cssVar enabled) */
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  /* Fallbacks ensure readable colors before tokens hydrate */
+  background-color: var(--ant-color-bg-layout, #ffffff);
+  color: var(--ant-color-text, #000000);
+}
+
+/* Ensure native UI elements match theme for better perceived contrast */
+html.dark {
+  color-scheme: dark;
+}
+html:not(.dark) {
+  color-scheme: light;
+}

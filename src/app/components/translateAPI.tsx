@@ -15,6 +15,7 @@ export const TRANSLATION_SERVICES = [
   { value: "deeplx", label: "DeepLX (Free)", docs: "https://deeplx.owo.network/endpoints/free.html" },
   { value: "deepseek", label: "DeepSeek", docs: "https://api-docs.deepseek.com/zh-cn/" },
   { value: "openai", label: "OpenAI", docs: "https://platform.openai.com/docs/api-reference/chat" },
+  { value: "gemini", label: "Gemini", docs: "https://ai.google.dev/api/generate-content" },
   {
     value: "azureopenai",
     label: "Azure OpenAI",
@@ -33,7 +34,7 @@ export const findMethodLabel = (method) => {
 
 type TranslationMethod = (typeof TRANSLATION_SERVICES)[number]["value"];
 
-export const LLM_MODELS = ["deepseek", "openai", "azureopenai", "siliconflow", "groq", "llm"];
+export const LLM_MODELS = ["deepseek", "openai", "gemini", "azureopenai", "siliconflow", "groq", "llm"];
 
 export const categorizedOptions = [
   ...TRANSLATION_SERVICES.filter((s) => !LLM_MODELS.includes(s.value)),
@@ -69,6 +70,12 @@ export const defaultConfigs = {
   openai: {
     apiKey: "",
     model: "gpt-4o-mini",
+    temperature: 1.3,
+    limit: 20,
+  },
+  gemini: {
+    apiKey: "",
+    model: "gemini-2.0-flash",
     temperature: 1.3,
     limit: 20,
   },
@@ -374,6 +381,57 @@ const translationServices = {
 
     const data = await response.json();
     return data.choices[0].message.content.trim();
+  },
+
+  gemini: async (params: TranslateTextParams) => {
+    const { text, targetLanguage, sourceLanguage, apiKey, model, temperature, sysPrompt, userPrompt } = params;
+    const prompt = getAIModelPrompt(text, userPrompt, targetLanguage, sourceLanguage);
+
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model || "gemini-2.0-flash")}:generateContent?key=${encodeURIComponent(apiKey || "")}`;
+    const body: any = {
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: prompt }],
+        },
+      ],
+      generationConfig: {
+        temperature: Number(temperature),
+        responseMimeType: "text/plain",
+      },
+    };
+    if (sysPrompt && sysPrompt.trim()) {
+      body.systemInstruction = {
+        role: "system",
+        parts: [{ text: sysPrompt }],
+      };
+    }
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      const errMsg = data?.error?.message || `HTTP error! status: ${response.status}`;
+      throw new Error(errMsg);
+    }
+
+    if (data?.promptFeedback?.blockReason) {
+      throw new Error(`Gemini blocked prompt: ${data.promptFeedback.blockReason}`);
+    }
+
+    const textParts = data?.candidates?.[0]?.content?.parts || [];
+    const combined = textParts
+      .map((p: any) => (typeof p?.text === "string" ? p.text : ""))
+      .filter(Boolean)
+      .join("");
+    return (combined || "").trim();
   },
 
   openai: async (params: TranslateTextParams) => {
