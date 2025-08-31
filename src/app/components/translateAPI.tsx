@@ -655,3 +655,77 @@ export const useTranslation = () => {
     translate,
   };
 };
+
+// List available models for a given service using its API
+export const listModels = async (service: string, config: any): Promise<string[]> => {
+  try {
+    switch (service) {
+      case "openai": {
+        const resp = await fetch("https://api.openai.com/v1/models", {
+          headers: { Authorization: `Bearer ${config.apiKey}` },
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data?.error?.message || `HTTP ${resp.status}`);
+        return (data?.data || []).map((m: any) => m.id).filter(Boolean);
+      }
+      case "deepseek": {
+        const resp = await fetch("https://api.deepseek.com/v1/models", {
+          headers: { Authorization: `Bearer ${config.apiKey}` },
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data?.error?.message || `HTTP ${resp.status}`);
+        return (data?.data || []).map((m: any) => m.id).filter(Boolean);
+      }
+      case "groq": {
+        const resp = await fetch("https://api.groq.com/openai/v1/models", {
+          headers: { Authorization: `Bearer ${config.apiKey}` },
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data?.error?.message || `HTTP ${resp.status}`);
+        return (data?.data || []).map((m: any) => m.id).filter(Boolean);
+      }
+      case "siliconflow": {
+        const resp = await fetch("https://api.siliconflow.cn/v1/models", {
+          headers: { Authorization: `Bearer ${config.apiKey}` },
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data?.error?.message || `HTTP ${resp.status}`);
+        return (data?.data || data?.models || []).map((m: any) => m.id || m.name).filter(Boolean);
+      }
+      case "gemini": {
+        const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(config.apiKey || "")}`);
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data?.error?.message || `HTTP ${resp.status}`);
+        return (data?.models || []).map((m: any) => (m.name?.startsWith("models/") ? m.name.substring(7) : m.name)).filter(Boolean);
+      }
+      case "azureopenai": {
+        const endpoint = (config.url || "").replace(/\/+$/, "");
+        const apiVersion = config.apiVersion || "2024-07-18";
+        if (!endpoint) throw new Error("Missing Azure OpenAI URL");
+        const resp = await fetch(`${endpoint}/openai/deployments?api-version=${apiVersion}`, {
+          headers: { "api-key": config.apiKey },
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data?.error?.message || `HTTP ${resp.status}`);
+        // Use deployment ids (path requires deployment name)
+        return (data?.value || []).map((d: any) => d.id || d.name).filter(Boolean);
+      }
+      case "llm": {
+        // Try OpenAI-compatible /v1/models if base is provided
+        const base = (config.url || "").replace(/\/v1\/chat\/completions.*/, "/v1/models");
+        if (!base) throw new Error("Missing LLM base URL");
+        const headers: Record<string, string> = {};
+        if ((config.apiKey || "").trim()) headers.Authorization = `Bearer ${config.apiKey}`;
+        const resp = await fetch(base, { headers });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data?.error?.message || `HTTP ${resp.status}`);
+        return (data?.data || []).map((m: any) => m.id).filter(Boolean);
+      }
+      default:
+        return [];
+    }
+  } catch (e: any) {
+    console.error("listModels error", e);
+    throw e;
+  }
+};

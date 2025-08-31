@@ -31,9 +31,10 @@ export default async function LocaleLayout({ children, params }: { children: Rea
   setRequestLocale(locale);
   const direction = getLangDir(locale);
   const messages = await getMessages();
+  const isProd = process.env.NODE_ENV === "production";
   return (
     <html lang={locale} dir={direction} suppressHydrationWarning>
-      <GoogleTagManager gtmId="GTM-WBM6XHGB" />
+      {isProd ? <GoogleTagManager gtmId="GTM-WBM6XHGB" /> : null}
       <body>
         <NextIntlClientProvider messages={messages}>
           <ThemesProvider>

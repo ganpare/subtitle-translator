@@ -15,6 +15,10 @@ const ClientPage = () => {
   const locale = useLocale();
   const isChineseLocale = locale === "zh" || locale === "zh-hant";
 
+  // Hydration 安定化: 初期は SSR と同一のシンプルな構造を出し、マウント後に AntD コンポーネントへ切替
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   const userGuideUrl = useMemo(
     () => (isChineseLocale ? "https://docs.newzone.top/guide/translation/subtitle-translator/index.html" : "https://docs.newzone.top/en/guide/translation/subtitle-translator/index.html"),
     [isChineseLocale]
@@ -50,15 +54,30 @@ const ClientPage = () => {
 
   return (
     <>
-      <Title level={3}>
-        <VideoCameraOutlined /> {tSubtitle("clientTitle")}
-      </Title>
-      <Paragraph type="secondary" ellipsis={{ rows: 3, expandable: true, symbol: "more" }}>
-        <Link href={userGuideUrl} target="_blank" rel="noopener noreferrer">
-          <QuestionCircleOutlined /> {t("userGuide")}
-        </Link>{" "}
-        {tSubtitle("clientDescription")} {t("privacyNotice")}
-      </Paragraph>
+      {mounted ? (
+        <Title level={3}>
+          <VideoCameraOutlined /> {tSubtitle("clientTitle")}
+        </Title>
+      ) : (
+        <h3>{tSubtitle("clientTitle")}</h3>
+      )}
+
+      {mounted ? (
+        <Paragraph type="secondary" ellipsis={{ rows: 3, expandable: true, symbol: "more" }}>
+          <Link href={userGuideUrl} target="_blank" rel="noopener noreferrer">
+            <QuestionCircleOutlined /> {t("userGuide")}
+          </Link>{" "}
+          {tSubtitle("clientDescription")} {t("privacyNotice")}
+        </Paragraph>
+      ) : (
+        <p>
+          <a href={userGuideUrl} target="_blank" rel="noopener noreferrer">
+            {t("userGuide")}
+          </a>{" "}
+          {tSubtitle("clientDescription")} {t("privacyNotice")}
+        </p>
+      )}
+
       <Tabs activeKey={activeKey} onChange={handleTabChange} items={items} type="card" className="w-full" destroyOnHidden={true} animated={{ inkBar: true, tabPane: true }} />
     </>
   );

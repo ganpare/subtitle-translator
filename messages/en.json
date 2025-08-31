@@ -5,7 +5,9 @@
     "bigNotice": "When importing large files, your browser may become unresponsive. It is recommended to optimize large files.",
     "dragAndDropText": "Click or drag files here to upload (supports TXT, MD, JSON, and other text formats)",
     "pasteUploadContent": "Or directly paste text content here",
-    "example": "Example",
+  "example": "Example",
+  "select": "Select",
+  "refresh": "Refresh",
     "basicTab": "Translation Workspace",
     "advancedTab": "API Settings",
     "sourceLanguage": "Source Language",
@@ -331,7 +333,19 @@
     "limit": "Translation Speed",
     "limitExtra": "Excessive rate may cause the API to return empty responses; please reduce the rate accordingly.",
     "delayTime": "Delay Time",
-    "CurrentTransConfig": "Current Translation Configuration"
+  "CurrentTransConfig": "Current Translation Configuration",
+  "preset": "Preset",
+  "presetPlaceholder": "Select a style",
+  "presetApplied": "Preset applied",
+  "savePreset": "Save Preset",
+  "overwritePreset": "Overwrite",
+  "deletePreset": "Delete Preset",
+  "confirmDelete": "Delete this preset?",
+  "presetSaved": "Preset saved",
+  "presetUpdated": "Preset updated",
+  "presetDeleted": "Preset deleted",
+  "presetName": "Preset Name",
+  "presetNamePlaceholder": "e.g., Character A (polite)"
   },
   "tools": {
     "subtitleTranslator": {
