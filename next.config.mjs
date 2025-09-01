@@ -23,6 +23,23 @@ const nextConfig = {
     : internalHost
     ? `http://${internalHost}:3000` // dev + TAURI_DEV_HOST provided
     : "/", // dev + no TAURI_DEV_HOST
+  // Fix Jest worker issues
+  experimental: {
+    workerThreads: false,
+    cpus: 1,
+  },
+  // Reduce memory usage
+  webpack: (config, { dev }) => {
+    if (dev) {
+      config.watchOptions = {
+        poll: 1000,
+        aggregateTimeout: 300,
+      };
+      // Limit the number of workers to prevent Jest worker issues
+      config.parallelism = 1;
+    }
+    return config;
+  },
 };
 
 export default withNextIntl(nextConfig);

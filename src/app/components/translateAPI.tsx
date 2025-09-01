@@ -70,7 +70,7 @@ export const defaultConfigs = {
   openai: {
     apiKey: "",
     model: "gpt-4o-mini",
-    temperature: 1.3,
+    temperature: 1.0,
     limit: 20,
   },
   gemini: {
@@ -438,6 +438,14 @@ const translationServices = {
     const { text, targetLanguage, sourceLanguage, apiKey, model, temperature, sysPrompt, userPrompt } = params;
     const prompt = getAIModelPrompt(text, userPrompt, targetLanguage, sourceLanguage);
 
+    console.log("🚀 OpenAI API Call:", {
+      text: text.substring(0, 50),
+      model,
+      temperature,
+      prompt: prompt.substring(0, 100),
+      apiKey: apiKey ? "***SET***" : "NOT_SET"
+    });
+
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -455,6 +463,12 @@ const translationServices = {
     });
 
     const data = await response.json();
+    console.log("📥 OpenAI Response:", { status: response.status, data });
+    
+    if (!response.ok) {
+      throw new Error(`OpenAI API Error: ${data.error?.message || response.status}`);
+    }
+
     return data.choices[0].message.content.trim();
   },
 
@@ -606,7 +620,18 @@ const translateText = async (params: TranslateTextParams): Promise<string | null
   try {
     const { text, cacheSuffix, translationMethod, targetLanguage, sourceLanguage, useCache = true, apiKey, region = "eastasia", url, model, apiVersion, temperature, sysPrompt, userPrompt } = params;
 
+    console.log("🔍 Translation Debug:", {
+      text: text.substring(0, 50),
+      translationMethod,
+      sourceLanguage,
+      targetLanguage,
+      apiKey: apiKey ? "***SET***" : "NOT_SET",
+      hasTextMatch: /[a-zA-Z\p{L}]/u.test(text),
+      languagesEqual: sourceLanguage === targetLanguage
+    });
+
     if (!/[a-zA-Z\p{L}]/u.test(text) || sourceLanguage === targetLanguage) {
+      console.log("⚠️ Translation skipped:", sourceLanguage === targetLanguage ? "Same language" : "No translatable text");
       return text;
     }
 
