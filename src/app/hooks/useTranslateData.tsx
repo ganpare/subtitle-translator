@@ -18,7 +18,7 @@ const DEFAULT_API = "gtxFreeAPI";
 const useTranslateData = () => {
   const tLanguages = useTranslations("languages");
   const t = useTranslations("common");
-  const { translate } = useTranslation();
+  const { translate, translateBatch } = useTranslation();
   const [translationMethod, setTranslationMethod] = useState<string>(DEFAULT_API);
   // ["google", "gtxFreeAPI", "webgoogletranslate", "deepseek"] 没有 chuckSize 则逐行翻译
   const [translationConfigs, setTranslationConfigs] = useState(defaultConfigs);
@@ -402,6 +402,35 @@ const useTranslateData = () => {
         userPrompt: userPrompt,
         ...config,
       };
+
+      // Handle OpenAI Batch Mode
+      if (translationMethod === 'openai' && config?.batchMode) {
+        console.log("🚀 Using OpenAI Batch Mode for cost reduction");
+        
+        const chunks = contentLines.map((line, index) => ({
+          id: `chunk-${fileIndex}-${index.toString().padStart(4, '0')}`,
+          text: line
+        }));
+
+        try {
+          const batchResult = await translateBatch(chunks, {
+            ...translationConfig,
+            batchMode: true,
+          });
+
+          // Show success message and return placeholder results
+          // Actual translation will be available later via BatchStatusPanel
+          if (batchResult.type === 'batch') {
+            message.success(`Batch job created: ${batchResult.jobId}. Check the Batch Status panel for progress.`);
+            // Return original content as placeholder until batch completes
+            return contentLines;
+          }
+        } catch (error: any) {
+          console.error("Batch mode failed, falling back to regular API:", error);
+          message.warning(`Batch mode failed (${error.message}), falling back to regular translation`);
+          // Continue with regular translation below
+        }
+      }
 
       const cacheSuffix = await generateCacheSuffix(sourceLanguage, currentTargetLang, translationMethod, {
         model: config?.model,

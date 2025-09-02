@@ -72,6 +72,7 @@ export const defaultConfigs = {
     model: "gpt-4o-mini",
     temperature: 1.0,
     limit: 20,
+    batchMode: false,
   },
   gemini: {
     apiKey: "",
@@ -472,6 +473,67 @@ const translationServices = {
     return data.choices[0].message.content.trim();
   },
 
+  // OpenAI Batch API implementation for cost reduction (~50% savings)
+  openai_batch: async (
+    chunks: Array<{ id: string; text: string }>,
+    params: Omit<TranslateTextParams, 'text'> & { batchMode: true }
+  ) => {
+    const { targetLanguage, sourceLanguage, apiKey, model, temperature, sysPrompt, userPrompt } = params;
+
+    console.log("🚀 OpenAI Batch API Call:", {
+      chunks: chunks.length,
+      model,
+      temperature,
+      apiKey: apiKey ? "***SET***" : "NOT_SET"
+    });
+
+    // Import batch utilities dynamically to avoid bundling issues
+    const { 
+      generateBatchJSONL, 
+      uploadBatchFile, 
+      createBatchJob, 
+      saveBatchStatus 
+    } = await import('./openai-batch/batchAPI');
+
+    try {
+      // 1. Generate JSONL content
+      const jsonlContent = generateBatchJSONL(chunks, {
+        model: model || "gpt-4o-mini",
+        temperature: Number(temperature) || 1.0,
+        sysPrompt: sysPrompt || "You are a professional translator.",
+        userPrompt: userPrompt || "Translate: ${content}",
+        targetLanguage,
+        sourceLanguage
+      });
+
+      // 2. Upload file to OpenAI
+      const { file_id } = await uploadBatchFile(jsonlContent, apiKey);
+      console.log("📁 File uploaded:", file_id);
+
+      // 3. Create batch job
+      const batchJob = await createBatchJob(file_id, apiKey);
+      console.log("⏳ Batch job created:", batchJob.id);
+
+      // 4. Save status to localStorage for tracking
+      saveBatchStatus({
+        jobId: batchJob.id,
+        status: batchJob.status,
+        createdAt: Date.now(),
+        chunkIds: chunks.map(c => c.id)
+      });
+
+      return {
+        type: 'batch',
+        jobId: batchJob.id,
+        status: batchJob.status,
+        message: `Batch job ${batchJob.id} created. Results will be available in a few minutes to 24 hours.`
+      };
+    } catch (error: any) {
+      console.error("❌ Batch API Error:", error);
+      throw new Error(`OpenAI Batch API Error: ${error.message}`);
+    }
+  },
+
   azureopenai: async (params: TranslateTextParams) => {
     const { text, targetLanguage, sourceLanguage, apiKey, url, model, apiVersion, temperature, sysPrompt, userPrompt } = params;
     const prompt = getAIModelPrompt(text, userPrompt, targetLanguage, sourceLanguage);
@@ -676,8 +738,19 @@ export const useTranslation = () => {
     return await translateText(params);
   }, []);
 
+  const translateBatch = useCallback(async (
+    chunks: Array<{ id: string; text: string }>,
+    params: Omit<TranslateTextParams, 'text'> & { batchMode: true }
+  ) => {
+    if (params.translationMethod === 'openai' && params.batchMode) {
+      return await translationServices.openai_batch(chunks, params);
+    }
+    throw new Error('Batch mode is only supported for OpenAI');
+  }, []);
+
   return {
     translate,
+    translateBatch,
   };
 };
 

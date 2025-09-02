@@ -1,11 +1,12 @@
 "use client";
 
-import { Tabs, Form, Input, Card, Typography, Button, Space, Tooltip, message, Select, Modal, Popconfirm } from "antd";
+import { Tabs, Form, Input, Card, Typography, Button, Space, Tooltip, message, Select, Modal, Popconfirm, Switch } from "antd";
 import React from "react";
 import { TRANSLATION_SERVICES, LLM_MODELS, CACHE_PREFIX } from "@/app/components/translateAPI";
 import { listModels } from "@/app/components/translateAPI";
 import useTranslateData from "@/app/hooks/useTranslateData";
 import { useTranslations } from "next-intl";
+import BatchStatusPanel from "@/app/components/openai-batch/BatchStatusPanel";
 
 const { Text, Link } = Typography;
 const { TextArea } = Input;
@@ -222,6 +223,16 @@ const TranslationSettings = () => {
                 <Input type="number" value={config.temperature} onChange={(e) => handleConfigChange(service, "temperature", e.target.value)} />
               </Form.Item>
             )}
+            {service === "openai" && config?.batchMode !== undefined && (
+              <Form.Item label="バッチモード（実験的）" extra="非同期処理で約50%コスト削減。完了まで数分～24時間">
+                <Switch 
+                  checked={config.batchMode} 
+                  onChange={(checked) => handleConfigChange(service, "batchMode", checked)}
+                  checkedChildren="有効"
+                  unCheckedChildren="無効"
+                />
+              </Form.Item>
+            )}
             {isLLMModel && (
               <>
                 <Form.Item label={t("preset")}>
@@ -316,6 +327,15 @@ const TranslationSettings = () => {
             </div>
           </Form>
         </Card>
+        {service === "openai" && config?.apiKey && (
+          <BatchStatusPanel 
+            apiKey={config.apiKey}
+            onResultsReady={(results, jobId) => {
+              console.log(`Batch results ready for job ${jobId}:`, results);
+              messageApi.success(`Batch translation completed! Job: ${jobId}`);
+            }}
+          />
+        )}
         <Modal
           title={t("savePreset")}
           open={presetModalOpen}
