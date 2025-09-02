@@ -9,7 +9,8 @@ import { notFound } from "next/navigation";
 import { routing } from "@/i18n/routing";
 import ThemesProvider from "@/app/ThemesProvider";
 
-export async function generateMetadata({ params: { locale } }) {
+export async function generateMetadata({ params }: { params: { locale: string } }) {
+  const { locale } = params;
   const t = await getTranslations({ locale, namespace: "Metadata" });
   return {
     title: t("title"),
@@ -21,13 +22,11 @@ export function generateStaticParams() {
   return routing.locales.map((locale) => ({ locale }));
 }
 
-export default async function LocaleLayout({ children, params }: { children: React.ReactNode; params: Promise<{ locale: string }> }) {
-  // Ensure that the incoming `locale` is valid
-  const { locale } = await params;
+export default async function LocaleLayout({ children, params }: { children: React.ReactNode; params: { locale: string } }) {
+  const { locale } = params;
   if (!hasLocale(routing.locales, locale)) {
     notFound();
   }
-  // Enable static rendering
   setRequestLocale(locale);
   const direction = getLangDir(locale);
   const messages = await getMessages();
