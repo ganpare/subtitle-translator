@@ -10,6 +10,8 @@ import { useLanguageOptions, filterLanguageOption } from "@/app/components/langu
 import { useCopyToClipboard } from "@/app/hooks/useCopyToClipboard";
 import useFileUpload from "@/app/hooks/useFileUpload";
 import useTranslateData from "@/app/hooks/useTranslateData";
+import QueuePanel from "@/app/components/QueuePanel";
+import useTranslationQueue from "@/app/hooks/useTranslationQueue";
 import { useTranslations } from "next-intl";
 
 const { TextArea } = Input;
@@ -74,6 +76,8 @@ const SubtitleTranslator = () => {
   const [bilingualSubtitle, setBilingualSubtitle] = useState(false);
   const [bilingualPosition, setBilingualPosition] = useState("below"); // 'above' or 'below'
   const [contextAwareTranslation, setContextAwareTranslation] = useState(true); // 上下文感知翻译开关
+  const [queueMode, setQueueMode] = useState<boolean>(false);
+  const queue = useTranslationQueue();
 
   useEffect(() => {
     setExtractedText("");
@@ -328,7 +332,13 @@ const SubtitleTranslator = () => {
     <Spin spinning={isFileProcessing} size="large">
       {contextHolder}
       <Dragger
-        customRequest={({ file }) => handleFileUpload(file as File)}
+        customRequest={({ file }) => {
+          const f = file as File;
+          if (queueMode) {
+            queue.addFiles([f]);
+          }
+          return handleFileUpload(f);
+        }}
         accept=".srt,.ass,.vtt,.lrc"
         multiple={!singleFileMode}
         showUploadList
@@ -428,7 +438,7 @@ const SubtitleTranslator = () => {
             )}
           </Space>
         </Form.Item>
-        <Form.Item label={t("advancedSettings")}>
+  <Form.Item label={t("advancedSettings")}>
           <Space wrap>
             <Tooltip title={t("singleFileModeTooltip")}>
               <Checkbox checked={singleFileMode} onChange={(e) => setSingleFileMode(e.target.checked)}>
@@ -450,6 +460,9 @@ const SubtitleTranslator = () => {
             <Tooltip title={t("multiLanguageModeTooltip")}>
               <Switch checked={multiLanguageMode} onChange={(checked) => setMultiLanguageMode(checked)} checkedChildren={t("multiLanguageMode")} unCheckedChildren={t("singleLanguageMode")} />
             </Tooltip>
+            <Tooltip title="ドラッグした複数ファイルをキューに追加し順次処理します">
+              <Switch checked={queueMode} onChange={(v) => setQueueMode(v)} checkedChildren="Queue Mode" unCheckedChildren="Direct" />
+            </Tooltip>
           </Space>
         </Form.Item>
       </Form>
@@ -457,7 +470,28 @@ const SubtitleTranslator = () => {
         <Button
           type="primary"
           block
-          onClick={() => (uploadMode === "single" ? handleTranslate(performTranslation, sourceText, contextAwareTranslation) : handleMultipleTranslate())}
+          onClick={async () => {
+            if (!queueMode) {
+              return uploadMode === "single" ? handleTranslate(performTranslation, sourceText, contextAwareTranslation) : handleMultipleTranslate();
+            }
+            if (fileList.length === 0) {
+              messageApi.error(tSubtitle("noFileUploaded"));
+              return;
+            }
+            // push current fileList to queue and start
+            const files = fileList.map((f) => f.originFileObj as File).filter(Boolean);
+            queue.addFiles(files);
+            const isValid = await validateTranslate();
+            if (!isValid) return;
+            queue.start(async (item) => {
+              await new Promise<void>((resolve) => {
+                readFile(item.file, async (text) => {
+                  await performTranslation(text, item.name, 0, 1);
+                  resolve();
+                });
+              });
+            });
+          }}
           disabled={translateInProgress}>
           {multiLanguageMode ? `${t("translate")} | ${t("totalLanguages")}${target_langs.length || 0}` : t("translate")}
         </Button>
@@ -491,6 +525,28 @@ const SubtitleTranslator = () => {
         </Tooltip>
         {uploadMode === "single" && sourceText && <Button onClick={handleExtractText}>{t("extractText")}</Button>}
       </Flex>
+      {queueMode && (
+        <div className="mt-3">
+          <QueuePanel
+            items={queue.items}
+            stats={queue.stats}
+            running={queue.running}
+            onStart={() =>
+              queue.start(async (item) => {
+                await new Promise<void>((resolve) => {
+                  readFile(item.file, async (text) => {
+                    await performTranslation(text, item.name, 0, 1);
+                    resolve();
+                  });
+                });
+              })
+            }
+            onPause={() => queue.pause()}
+            onClear={() => queue.clear()}
+            onRemove={(id) => queue.removeItem(id)}
+          />
+        </div>
+      )}
       {uploadMode === "single" && (
         <>
           {translatedText && !(multiLanguageMode && target_langs.length > 1) && (
