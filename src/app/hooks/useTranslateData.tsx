@@ -377,7 +377,15 @@ const useTranslateData = () => {
     }
   }
 
-  const translateContent = async (contentLines: string[], translationMethod: string, currentTargetLang: string, fileIndex: number = 0, totalFiles: number = 1, isSubtitleMode: boolean = false) => {
+  const translateContent = async (
+    contentLines: string[],
+    translationMethod: string,
+    currentTargetLang: string,
+    fileIndex: number = 0,
+    totalFiles: number = 1,
+    isSubtitleMode: boolean = false,
+    batchSourceMeta?: import("@/app/components/openai-batch/batchAPI").BatchSourceMeta
+  ) => {
     const config = getCurrentConfig();
     // 限制并发数，确保至少为 1
     const concurrency = Math.max(Number(config?.limit) || 10, 1);
@@ -416,7 +424,8 @@ const useTranslateData = () => {
           const batchResult = await translateBatch(chunks, {
             ...translationConfig,
             batchMode: true,
-          });
+            sourceMeta: batchSourceMeta,
+          } as any);
 
           // Show success message and return placeholder results
           // Actual translation will be available later via BatchStatusPanel

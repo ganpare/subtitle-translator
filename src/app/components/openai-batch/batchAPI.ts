@@ -32,11 +32,23 @@ export interface BatchStatus {
   status: BatchJob["status"];
   createdAt: number;
   chunkIds: string[];
+  source?: BatchSourceMeta;
   progress?: {
     total: number;
     completed: number;
     failed: number;
   };
+}
+
+export interface BatchSourceMeta {
+  name?: string;
+  hash?: string; // MD5 or other fingerprint of contentLines or full text
+  size?: number; // optional original file size in bytes
+  fileType?: string; // srt | vtt | ass | lrc
+  lineCount?: number; // number of translated content lines
+  targetLanguage?: string;
+  bilingual?: boolean;
+  bilingualPosition?: 'above' | 'below';
 }
 
 /**

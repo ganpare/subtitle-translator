@@ -476,9 +476,9 @@ const translationServices = {
   // OpenAI Batch API implementation for cost reduction (~50% savings)
   openai_batch: async (
     chunks: Array<{ id: string; text: string }>,
-    params: Omit<TranslateTextParams, 'text'> & { batchMode: true }
+    params: Omit<TranslateTextParams, 'text'> & { batchMode: true } & { sourceMeta?: import('./openai-batch/batchAPI').BatchSourceMeta }
   ) => {
-    const { targetLanguage, sourceLanguage, apiKey, model, temperature, sysPrompt, userPrompt } = params;
+    const { targetLanguage, sourceLanguage, apiKey, model, temperature, sysPrompt, userPrompt, sourceMeta } = params;
 
     console.log("🚀 OpenAI Batch API Call:", {
       chunks: chunks.length,
@@ -519,7 +519,8 @@ const translationServices = {
         jobId: batchJob.id,
         status: batchJob.status,
         createdAt: Date.now(),
-        chunkIds: chunks.map(c => c.id)
+        chunkIds: chunks.map(c => c.id),
+        source: sourceMeta,
       });
 
       return {
@@ -740,7 +741,7 @@ export const useTranslation = () => {
 
   const translateBatch = useCallback(async (
     chunks: Array<{ id: string; text: string }>,
-    params: Omit<TranslateTextParams, 'text'> & { batchMode: true }
+    params: Omit<TranslateTextParams, 'text'> & { batchMode: true } & { sourceMeta?: import('./openai-batch/batchAPI').BatchSourceMeta }
   ) => {
     if (params.translationMethod === 'openai' && params.batchMode) {
       return await translationServices.openai_batch(chunks, params);

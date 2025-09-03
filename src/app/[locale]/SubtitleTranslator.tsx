@@ -13,6 +13,8 @@ import useTranslateData from "@/app/hooks/useTranslateData";
 import QueuePanel from "@/app/components/QueuePanel";
 import useTranslationQueue from "@/app/hooks/useTranslationQueue";
 import { useTranslations } from "next-intl";
+import SparkMD5 from "spark-md5";
+import type { BatchSourceMeta } from "@/app/components/openai-batch/batchAPI";
 
 const { TextArea } = Input;
 const { Dragger } = Upload;
@@ -116,6 +118,17 @@ const SubtitleTranslator = () => {
 
     const { contentLines, contentIndices, styleBlockLines } = filterSubLines(lines, fileType);
 
+    // Prepare lightweight batch source metadata for later merge
+    const batchSourceMeta: BatchSourceMeta = {
+      name: fileNameSet || multipleFiles[0]?.name,
+      hash: SparkMD5.hash(contentLines.join("\n")),
+      fileType: fileType,
+      lineCount: contentLines.length,
+      targetLanguage: multiLanguageMode ? undefined : targetLanguage,
+      bilingual: bilingualSubtitle,
+      bilingualPosition: bilingualPosition as any,
+    };
+
     // Determine target languages to translate to
     const targetLanguagesToUse = multiLanguageMode ? target_langs : [targetLanguage];
 
@@ -129,7 +142,15 @@ const SubtitleTranslator = () => {
     for (const currentTargetLang of targetLanguagesToUse) {
       try {
         // Translate content using the specific target language
-        const finalTranslatedLines = await translateContent(contentLines, translationMethod, currentTargetLang, fileIndex, totalFiles, isSubtitleMode && contextAwareTranslation);
+        const finalTranslatedLines = await translateContent(
+          contentLines,
+          translationMethod,
+          currentTargetLang,
+          fileIndex,
+          totalFiles,
+          isSubtitleMode && contextAwareTranslation,
+          batchSourceMeta
+        );
         // Copy array to avoid modifying the original lines
         const translatedTextArray = [...lines];
 
