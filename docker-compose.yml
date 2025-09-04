@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  subtitle-translator:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - NEXT_TELEMETRY_DISABLED=1
+      - NEXT_PUBLIC_ENABLE_BATCH=true
+      - ENABLE_SERVER_BATCH=true
+      # OpenAI API Key - 本番環境では必ず設定してください
+      # - OPENAI_API_KEY=your_openai_api_key_here
+    volumes:
+      # データベースファイルを永続化
+      - ./data:/app/data
+      # 開発時のホットリロード用（オプション）
+      - ./src:/app/src
+      - ./public:/app/public
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+# 使用方法:
+# 1. docker-compose up -d
+# 2. http://localhost:3000 でアクセス
+# 3. 環境変数 OPENAI_API_KEY を設定してバッチ機能を使用

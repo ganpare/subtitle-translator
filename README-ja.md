@@ -37,8 +37,28 @@ OPENAI_API_KEY=sk-...           # サーバー側の OpenAI キー
 - サーバーAPI: `src/app/api/batch/*`, `src/app/api/subtitles/*`
 - DB: `src/lib/database.ts`, `src/lib/db-operations.ts`
 
-## 起動（ローカル）
+## 起動方法
+
+### Docker（推奨）
+```bash
+# Docker Compose を使用
+docker-compose up -d
+
+# または Docker 直接実行
+docker build -t subtitle-translator .
+docker run -d -p 3000:3000 \
+  -e OPENAI_API_KEY=your_openai_api_key_here \
+  --name subtitle-translator \
+  subtitle-translator
 ```
+
+**Docker環境変数:**
+- `OPENAI_API_KEY`: OpenAI APIキー（バッチ機能に必要）
+- `NEXT_PUBLIC_ENABLE_BATCH`: バッチモード有効化（デフォルト: true）
+- `ENABLE_SERVER_BATCH`: サーバー側バッチ監視（デフォルト: true）
+
+### ローカル開発
+```bash
 yarn
 yarn dev
 # http://localhost:3000

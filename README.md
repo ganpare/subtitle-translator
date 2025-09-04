@@ -164,6 +164,29 @@ Subtitle Translator can be deployed on Cloudflare, Vercel, EdgeOne, or any serve
 
 [![Use EdgeOne Pages to deploy](https://cdnstatic.tencentcs.com/edgeone/pages/deploy.svg)](https://edgeone.ai/pages/new?repository-url=https%3A%2F%2Fgithub.com%2Frockbenben%2Fsubtitle-translator&output-directory=out&install-command=yarn+install&build-command=yarn+build%3Alang+en)
 
+### Docker Deployment
+
+The easiest way to run Subtitle Translator is using Docker:
+
+```bash
+# Using Docker Compose (Recommended)
+docker-compose up -d
+
+# Or using Docker directly
+docker build -t subtitle-translator .
+docker run -d -p 3000:3000 \
+  -e OPENAI_API_KEY=your_openai_api_key_here \
+  --name subtitle-translator \
+  subtitle-translator
+```
+
+**Environment Variables for Docker:**
+- `OPENAI_API_KEY`: Your OpenAI API key (required for batch functionality)
+- `NEXT_PUBLIC_ENABLE_BATCH`: Enable batch mode (default: true)
+- `ENABLE_SERVER_BATCH`: Enable server-side batch monitoring (default: true)
+
+### Manual Installation
+
 System Requirements:
 
 - [Node.js 18.18](https://nodejs.org/) or later.
