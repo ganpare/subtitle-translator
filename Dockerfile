@@ -24,12 +24,8 @@ ENV ENABLE_SERVER_BATCH=true
 # 暴露端口 3000
 EXPOSE 3000
 
-# 拷贝并设置启动脚本
-COPY docker-entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-
-# 使用自定义启动脚本
-ENTRYPOINT ["/entrypoint.sh"]
+# 直接启动开发服务器
+CMD ["yarn", "dev"]
 
 # 最终命令：再次启动开发服务器
 #CMD ["yarn", "dev"]
