@@ -514,8 +514,8 @@ const translationServices = {
       const batchJob = await createBatchJob(file_id, apiKey);
       console.log("⏳ Batch job created:", batchJob.id);
 
-      // 4. Save status to localStorage for tracking
-      saveBatchStatus({
+      // 4. Save status to server for tracking
+      await saveBatchStatus({
         jobId: batchJob.id,
         status: batchJob.status,
         createdAt: Date.now(),

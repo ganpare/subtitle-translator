@@ -36,3 +36,9 @@ next-env.d.ts
 
 # tauri
 src-tauri
+
+# database
+/data/
+*.db
+*.db-wal
+*.db-shm

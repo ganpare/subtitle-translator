@@ -208,39 +208,67 @@ export const downloadBatchResults = async (
 export const BATCH_STORAGE_KEY = 'openai_batch_jobs';
 
 /**
- * Save batch status to localStorage
+ * Save batch status to server
  */
-export const saveBatchStatus = (status: BatchStatus) => {
+export const saveBatchStatus = async (status: BatchStatus, sessionId?: string) => {
   try {
-    const existing = JSON.parse(localStorage.getItem(BATCH_STORAGE_KEY) || '[]');
-    const updated = existing.filter((s: BatchStatus) => s.jobId !== status.jobId);
-    updated.push(status);
-    localStorage.setItem(BATCH_STORAGE_KEY, JSON.stringify(updated));
+    const response = await fetch('/api/batch/jobs', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        jobId: status.jobId,
+        status: status.status,
+        chunkIds: status.chunkIds,
+        source: status.source,
+        userId: sessionId || 'anonymous',
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to save batch status: ${response.status}`);
+    }
+
+    return await response.json();
   } catch (e) {
     console.error('Failed to save batch status:', e);
+    throw e;
   }
 };
 
 /**
- * Get all batch statuses from localStorage
+ * Get all batch statuses from server
  */
-export const getBatchStatuses = (): BatchStatus[] => {
+export const getBatchStatuses = async (sessionId?: string): Promise<BatchStatus[]> => {
   try {
-    return JSON.parse(localStorage.getItem(BATCH_STORAGE_KEY) || '[]');
+    const response = await fetch(`/api/batch/jobs?userId=${sessionId || 'anonymous'}`);
+    if (response.ok) {
+      const data = await response.json();
+      return data.jobs || [];
+    }
+    return [];
   } catch {
     return [];
   }
 };
 
 /**
- * Remove completed batch status
+ * Remove batch status from server
  */
-export const removeBatchStatus = (jobId: string) => {
+export const removeBatchStatus = async (jobId: string, sessionId?: string) => {
   try {
-    const existing = getBatchStatuses();
-    const updated = existing.filter(s => s.jobId !== jobId);
-    localStorage.setItem(BATCH_STORAGE_KEY, JSON.stringify(updated));
+    const response = await fetch(`/api/batch/jobs?jobId=${jobId}&userId=${sessionId || 'anonymous'}`, {
+      method: 'DELETE',
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to remove batch status: ${response.status}`);
+    }
+
+    return await response.json();
   } catch (e) {
     console.error('Failed to remove batch status:', e);
+    throw e;
   }
 };

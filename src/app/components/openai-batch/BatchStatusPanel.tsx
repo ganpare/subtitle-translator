@@ -5,10 +5,8 @@ import { Card, List, Button, Progress, Tag, Space, Typography, message, Modal, U
 import { ReloadOutlined, DownloadOutlined, DeleteOutlined, FileTextOutlined, PaperClipOutlined } from '@ant-design/icons';
 import { 
   BatchStatus, 
-  getBatchStatuses, 
   getBatchStatus, 
-  downloadBatchResults, 
-  removeBatchStatus 
+  downloadBatchResults
 } from './batchAPI';
 import { downloadFile } from '@/app/utils';
 import SparkMD5 from 'spark-md5';
@@ -29,9 +27,20 @@ const BatchStatusPanel: React.FC<BatchStatusPanelProps> = ({ apiKey, onResultsRe
   const [mergeBatch, setMergeBatch] = useState<BatchStatus | null>(null);
   const [mergeFile, setMergeFile] = useState<File | null>(null);
   const [merging, setMerging] = useState(false);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
+  const [sessionId, setSessionId] = useState<string>('');
 
-  const loadBatches = () => {
-    setBatches(getBatchStatuses());
+  const loadBatches = async () => {
+    try {
+      // Load batches from server (session is handled by cookies)
+      const response = await fetch('/api/batch/jobs');
+      if (response.ok) {
+        const data = await response.json();
+        setBatches(data.jobs || []);
+      }
+    } catch (error) {
+      console.error('Failed to load batches:', error);
+    }
   };
 
   useEffect(() => {
@@ -39,6 +48,39 @@ const BatchStatusPanel: React.FC<BatchStatusPanelProps> = ({ apiKey, onResultsRe
     const interval = setInterval(loadBatches, 30000); // Refresh every 30 seconds
     return () => clearInterval(interval);
   }, []);
+
+  // Request notification permission on component mount
+  useEffect(() => {
+    if ('Notification' in window) {
+      setNotificationPermission(Notification.permission);
+      if (Notification.permission === 'default') {
+        Notification.requestPermission().then((permission) => {
+          setNotificationPermission(permission);
+        });
+      }
+    }
+  }, []);
+
+  // Check for completed batches and show notifications
+  useEffect(() => {
+    const checkCompletedBatches = () => {
+      batches.forEach(async (batch) => {
+        if (batch.status === 'completed' && apiKey) {
+          // Show browser notification if permission is granted
+          if (Notification.permission === 'granted') {
+            new Notification('Batch Translation Completed', {
+              body: `Batch job ${batch.jobId.slice(-8)} has completed successfully!`,
+              icon: '/logo.png',
+            });
+          }
+        }
+      });
+    };
+
+    if (batches.length > 0) {
+      checkCompletedBatches();
+    }
+  }, [batches, apiKey]);
 
   const refreshBatch = async (batch: BatchStatus) => {
     if (!apiKey) {
@@ -48,7 +90,14 @@ const BatchStatusPanel: React.FC<BatchStatusPanelProps> = ({ apiKey, onResultsRe
 
     setLoading(prev => [...prev, batch.jobId]);
     try {
-      const status = await getBatchStatus(batch.jobId, apiKey);
+      // Use server-side API for better reliability
+      const response = await fetch(`/api/batch/status?jobId=${batch.jobId}&apiKey=${encodeURIComponent(apiKey)}`);
+      
+      if (!response.ok) {
+        throw new Error(`Server error: ${response.status}`);
+      }
+      
+      const status = await response.json();
       const updatedBatch = {
         ...batch,
         status: status.status,
@@ -59,20 +108,26 @@ const BatchStatusPanel: React.FC<BatchStatusPanelProps> = ({ apiKey, onResultsRe
         }
       };
 
-      // Update localStorage
-      const allBatches = getBatchStatuses();
-      const updatedBatches = allBatches.map(b => 
-        b.jobId === batch.jobId ? updatedBatch : b
-      );
-      localStorage.setItem('openai_batch_jobs', JSON.stringify(updatedBatches));
+      // Update server-side storage
+      await fetch('/api/batch/jobs', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          jobId: batch.jobId,
+          status: status.status,
+        }),
+      });
       
-      setBatches(updatedBatches);
+      // Reload batches from server
+      await loadBatches();
 
-      if (status.status === 'completed' && status.output_file_id) {
+      if (status.status === 'completed' && status.outputFileId) {
         messageApi.success(`Batch ${batch.jobId} completed!`);
         
         // Auto-download results
-        const results = await downloadBatchResults(status.output_file_id, apiKey);
+        const results = await downloadBatchResults(status.outputFileId, apiKey);
         onResultsReady?.(results, batch.jobId);
       } else if (status.status === 'failed') {
         messageApi.error(`Batch ${batch.jobId} failed`);
@@ -196,10 +251,16 @@ const BatchStatusPanel: React.FC<BatchStatusPanelProps> = ({ apiKey, onResultsRe
     Modal.confirm({
       title: 'Remove Batch Job',
       content: 'Are you sure you want to remove this batch job from the list?',
-      onOk: () => {
-        removeBatchStatus(jobId);
-        loadBatches();
-        messageApi.success('Batch job removed');
+      onOk: async () => {
+        try {
+          await fetch(`/api/batch/jobs?jobId=${jobId}`, {
+            method: 'DELETE',
+          });
+          await loadBatches();
+          messageApi.success('Batch job removed');
+        } catch (error) {
+          messageApi.error('Failed to remove batch job');
+        }
       }
     });
   };
@@ -238,13 +299,21 @@ const BatchStatusPanel: React.FC<BatchStatusPanelProps> = ({ apiKey, onResultsRe
         size="small" 
         style={{ marginTop: 16 }}
         extra={
-          <Button 
-            icon={<ReloadOutlined />} 
-            onClick={loadBatches}
-            size="small"
-          >
-            Refresh
-          </Button>
+          <Space>
+            {notificationPermission === 'granted' && (
+              <Tag color="green" size="small">通知有効</Tag>
+            )}
+            {notificationPermission === 'denied' && (
+              <Tag color="red" size="small">通知無効</Tag>
+            )}
+            <Button 
+              icon={<ReloadOutlined />} 
+              onClick={loadBatches}
+              size="small"
+            >
+              Refresh
+            </Button>
+          </Space>
         }
       >
         <List
