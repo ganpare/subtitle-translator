@@ -9,11 +9,19 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const jobId = searchParams.get('jobId');
-    const apiKey = searchParams.get('apiKey');
+    const enabled = process.env.ENABLE_SERVER_BATCH !== 'false';
+    const apiKey = process.env.OPENAI_API_KEY;
+
+    if (!enabled) {
+      return NextResponse.json(
+        { error: 'Server batch status is disabled' },
+        { status: 403 }
+      );
+    }
 
     if (!jobId || !apiKey) {
       return NextResponse.json(
-        { error: 'Missing jobId or apiKey' },
+        { error: 'Missing jobId or server OPENAI_API_KEY' },
         { status: 400 }
       );
     }
@@ -55,12 +63,21 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const enabled = process.env.ENABLE_SERVER_BATCH !== 'false';
     const body = await request.json();
-    const { jobIds, apiKey } = body;
+    const { jobIds } = body;
+    const apiKey = process.env.OPENAI_API_KEY;
+
+    if (!enabled) {
+      return NextResponse.json(
+        { error: 'Server batch status is disabled' },
+        { status: 403 }
+      );
+    }
 
     if (!jobIds || !Array.isArray(jobIds) || !apiKey) {
       return NextResponse.json(
-        { error: 'Missing jobIds array or apiKey' },
+        { error: 'Missing jobIds array or server OPENAI_API_KEY' },
         { status: 400 }
       );
     }

@@ -54,29 +54,16 @@ const ClientPage = () => {
 
   return (
     <>
-      {mounted ? (
-        <Title level={3}>
-          <VideoCameraOutlined /> {tSubtitle("clientTitle")}
-        </Title>
-      ) : (
-        <h3>{tSubtitle("clientTitle")}</h3>
-      )}
+      <h3 suppressHydrationWarning>
+        <VideoCameraOutlined /> {tSubtitle("clientTitle")}
+      </h3>
 
-      {mounted ? (
-        <Paragraph type="secondary" ellipsis={{ rows: 3, expandable: true, symbol: "more" }}>
-          <Link href={userGuideUrl} target="_blank" rel="noopener noreferrer">
-            <QuestionCircleOutlined /> {t("userGuide")}
-          </Link>{" "}
-          {tSubtitle("clientDescription")} {t("privacyNotice")}
-        </Paragraph>
-      ) : (
-        <p>
-          <a href={userGuideUrl} target="_blank" rel="noopener noreferrer">
-            {t("userGuide")}
-          </a>{" "}
-          {tSubtitle("clientDescription")} {t("privacyNotice")}
-        </p>
-      )}
+      <p suppressHydrationWarning>
+        <a href={userGuideUrl} target="_blank" rel="noopener noreferrer">
+          {t("userGuide")}
+        </a>{" "}
+        {tSubtitle("clientDescription")} {t("privacyNotice")}
+      </p>
 
       <Tabs activeKey={activeKey} onChange={handleTabChange} items={items} type="card" className="w-full" destroyOnHidden={true} animated={{ inkBar: true, tabPane: true }} />
     </>

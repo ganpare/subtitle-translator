@@ -8,6 +8,7 @@
   "example": "例",
   "select": "選択",
   "refresh": "再取得",
+  "confirm": "確認",
     "basicTab": "翻訳ワークスペース",
     "advancedTab": "API 設定",
     "sourceLanguage": "原文言語",

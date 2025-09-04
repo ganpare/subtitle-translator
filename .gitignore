@@ -41,4 +41,5 @@ src-tauri
 /data/
 *.db
 *.db-wal
-*.db-shm
+*.db-shm.env
+.env

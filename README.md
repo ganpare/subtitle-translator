@@ -2,7 +2,8 @@
 ⚡️Subtitle Translator
 </h1>
 <p align="center">
-    English | <a href="./README-zh.md">中文</a>
+    English | <a href="./README-zh.md">中文</a> | <a href="./README-ja.md">日本語</a>
+    
 </p>
 <p align="center">
     <em>Translate subtitles effortlessly—fast, accurate, and multilingual!</em>
@@ -27,6 +28,48 @@ Compared to traditional subtitle translation tools, Subtitle Translator excels w
 - **Multi-language support & internationalization**: Translates subtitles into **35 major languages**, including English, Chinese, Japanese, Korean, French, German, and Spanish. It also supports **multi-language translations from a single file**, generating **bilingual or multilingual subtitles**.  
 
 Subtitle Translator offers a range of customizable parameters to meet diverse user needs. Below is a detailed explanation of its features.  
+
+---
+
+## This repository (fork) – Added features and architecture
+
+This project is a fork that adds server‑assisted OpenAI Batch API support and database‑backed job tracking while staying compatible with the original client‑only design.
+
+### What’s new in this fork
+- Server‑assisted Batch translation (OpenAI)
+  - Client creates OpenAI Batch jobs (JSONL) and immediately persists the `jobId` on the server.
+  - Server checks job status via a route (`/api/batch/status`) using server‑side API keys (no keys in the browser).
+  - UI shows an "OpenAI Batch Jobs" panel in API Settings → OpenAI; jobs list is loaded from the server DB.
+- Database persistence instead of local storage
+  - Jobs, status, basic source metadata (filename, hash, format, line count) and usage metrics are stored in SQLite by default.
+  - Optional: Save original subtitle content and merged translated content for later reuse (e.g., media player server).
+- Periodic monitoring (polling) options
+  - Client auto‑refreshes the jobs list every 30s, and each job has a manual Refresh.
+  - Server route can be called by a scheduler (e.g., cron) to update statuses even when the browser is closed.
+- GPT‑5/o5 responses endpoint support
+  - JSONL is generated for `/v1/responses` automatically for GPT‑5/o5 models; legacy models use `/v1/chat/completions`.
+- Safer key handling
+  - Server routes read `OPENAI_API_KEY` from `.env` and never require keys from the client.
+
+### Why this matters
+- Close the browser safely: jobs are tracked on the server and can complete without the page being open.
+- Multi‑device visibility: your jobs list comes from the DB, not from per‑browser local storage.
+- Easier operations: optional cron can keep statuses fresh; usage (token) metrics are recorded for analysis/billing.
+
+### Environment flags
+```
+NEXT_PUBLIC_ENABLE_BATCH=true   # Show Batch panel in UI
+ENABLE_SERVER_BATCH=true        # Enable server status checks
+OPENAI_API_KEY=sk-...           # Server-side OpenAI key
+```
+
+### Where to look in code
+- UI: `src/app/components/openai-batch/BatchStatusPanel.tsx`
+- Batch utilities: `src/app/components/openai-batch/batchAPI.ts`
+- Server routes: `src/app/api/batch/*`, `src/app/api/subtitles/*`
+- DB: `src/lib/database.ts`, `src/lib/db-operations.ts`
+
+---
 
 ## Translation APIs  
 

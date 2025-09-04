@@ -1,4 +1,5 @@
 import { getDatabase, User, BatchJob, TranslationHistory } from './database';
+import { randomUUID } from 'crypto';
 
 // User operations
 export const createUser = (sessionId: string, userAgent?: string, ipAddress?: string): User => {
@@ -106,6 +107,37 @@ export const updateBatchJobStatus = (openaiJobId: string, status: string): boole
   return result.changes > 0;
 };
 
+export const updateBatchUsage = (
+  openaiJobId: string,
+  usage: {
+    input_tokens?: number;
+    output_tokens?: number;
+    total_tokens?: number;
+    details?: any;
+  }
+): boolean => {
+  const db = getDatabase();
+  const stmt = db.prepare(`
+    UPDATE batch_jobs 
+    SET 
+      usage_input_tokens = COALESCE(?, usage_input_tokens),
+      usage_output_tokens = COALESCE(?, usage_output_tokens),
+      usage_total_tokens = COALESCE(?, usage_total_tokens),
+      usage_details = COALESCE(?, usage_details),
+      updated_at = ?
+    WHERE openai_job_id = ?
+  `);
+  const result = stmt.run(
+    usage.input_tokens ?? null,
+    usage.output_tokens ?? null,
+    usage.total_tokens ?? null,
+    usage.details ? JSON.stringify(usage.details) : null,
+    Date.now(),
+    openaiJobId
+  );
+  return result.changes > 0;
+};
+
 export const deleteBatchJob = (openaiJobId: string, userId: string): boolean => {
   const db = getDatabase();
   const stmt = db.prepare('DELETE FROM batch_jobs WHERE openai_job_id = ? AND user_id = ?');
@@ -196,4 +228,45 @@ export const getDatabaseStats = () => {
     translationHistory: historyCount.count,
     activeBatches: activeBatches.count,
   };
+};
+
+// Subtitle sources
+export const upsertSubtitleSource = (
+  userId: string,
+  data: { filename?: string; file_type?: string; hash?: string; size_bytes?: number; line_count?: number; content?: string }
+): { id: string } => {
+  const db = getDatabase();
+  const now = Date.now();
+  const existing = data.hash ? db.prepare('SELECT id FROM subtitle_sources WHERE hash = ?').get(data.hash) as { id: string } | undefined : undefined;
+  if (existing?.id) {
+    return { id: existing.id };
+  }
+  const id = `source_${now}_${Math.random().toString(36).substr(2, 9)}`;
+  db.prepare(`
+    INSERT INTO subtitle_sources (id, user_id, filename, file_type, hash, size_bytes, line_count, created_at, content)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, userId, data.filename || null, data.file_type || null, data.hash || null, data.size_bytes || null, data.line_count || null, now, data.content || null);
+  return { id };
+};
+
+// Subtitle translations
+export const upsertSubtitleTranslation = (
+  sourceId: string,
+  data: { batch_job_id?: string; target_language: string; content: string; status?: string }
+): { id: string } => {
+  const db = getDatabase();
+  const now = Date.now();
+  const existing = db.prepare('SELECT id FROM subtitle_translations WHERE source_id = ? AND target_language = ?').get(sourceId, data.target_language) as { id: string } | undefined;
+  if (existing?.id) {
+    db.prepare(`
+      UPDATE subtitle_translations SET content = ?, status = COALESCE(?, status), updated_at = ? WHERE id = ?
+    `).run(data.content, data.status || null, now, existing.id);
+    return { id: existing.id };
+  }
+  const id = `trans_${now}_${Math.random().toString(36).substr(2, 9)}`;
+  db.prepare(`
+    INSERT INTO subtitle_translations (id, source_id, batch_job_id, target_language, content, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, sourceId, data.batch_job_id || null, data.target_language, data.content, data.status || 'final', now, now);
+  return { id };
 };

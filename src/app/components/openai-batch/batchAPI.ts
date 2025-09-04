@@ -6,13 +6,19 @@
 export interface BatchRequest {
   custom_id: string;
   method: "POST";
-  url: "/v1/chat/completions";
+  url: "/v1/chat/completions" | "/v1/responses";
   body: {
     model: string;
-    messages: Array<{
+    // For chat/completions
+    messages?: Array<{
       role: "system" | "user";
       content: string;
     }>;
+    // For responses API
+    input?: Array<{
+      role: "system" | "user";
+      content: string;
+    }> | string;
     temperature: number;
   };
 }
@@ -63,24 +69,44 @@ export const generateBatchJSONL = (
     userPrompt: string;
     targetLanguage: string;
     sourceLanguage: string;
+    useResponsesApi?: boolean;
   }
 ): string => {
+  const model = config.model;
+  const shouldUseResponses =
+    config.useResponsesApi === true || /^(gpt-5|o5)/i.test(model || "");
+
   const requests: BatchRequest[] = chunks.map((chunk) => ({
     custom_id: chunk.id,
     method: "POST",
-    url: "/v1/chat/completions",
+    url: shouldUseResponses ? "/v1/responses" : "/v1/chat/completions",
     body: {
-      model: config.model,
-      messages: [
-        { role: "system", content: config.sysPrompt },
-        { 
-          role: "user", 
-          content: config.userPrompt
-            .replace("${sourceLanguage}", config.sourceLanguage)
-            .replace("${targetLanguage}", config.targetLanguage)
-            .replace("${content}", chunk.text)
-        },
-      ],
+      model: model,
+      ...(shouldUseResponses
+        ? {
+            input: [
+              { role: "system", content: config.sysPrompt },
+              {
+                role: "user",
+                content: config.userPrompt
+                  .replace("${sourceLanguage}", config.sourceLanguage)
+                  .replace("${targetLanguage}", config.targetLanguage)
+                  .replace("${content}", chunk.text),
+              },
+            ],
+          }
+        : {
+            messages: [
+              { role: "system", content: config.sysPrompt },
+              {
+                role: "user",
+                content: config.userPrompt
+                  .replace("${sourceLanguage}", config.sourceLanguage)
+                  .replace("${targetLanguage}", config.targetLanguage)
+                  .replace("${content}", chunk.text),
+              },
+            ],
+          }),
       temperature: config.temperature,
     },
   }));
@@ -132,7 +158,8 @@ export const createBatchJob = async (
     },
     body: JSON.stringify({
       input_file_id: inputFileId,
-      endpoint: '/v1/chat/completions',
+      // Endpoint will be determined by the JSONL itself, but setting a sensible default
+      endpoint: '/v1/responses',
       completion_window: '24h',
     }),
   });
@@ -185,14 +212,17 @@ export const downloadBatchResults = async (
 
   const content = await response.text();
   const results: Record<string, string> = {};
+  // Optionally, collect usage per line for later aggregation
+  // const usages: Array<any> = [];
   
   content.split('\n').forEach(line => {
     if (line.trim()) {
       try {
         const result = JSON.parse(line);
-        if (result.custom_id && result.response?.body?.choices?.[0]?.message?.content) {
-          results[result.custom_id] = result.response.body.choices[0].message.content.trim();
-        }
+        const body = result.response?.body || {};
+        const text = body?.choices?.[0]?.message?.content?.trim?.() || body?.output_text?.trim?.() || '';
+        if (result.custom_id && text) results[result.custom_id] = text;
+        // if (body?.usage) usages.push({ id: result.custom_id, usage: body.usage });
       } catch (e) {
         console.warn('Failed to parse result line:', line);
       }
@@ -212,11 +242,17 @@ export const BATCH_STORAGE_KEY = 'openai_batch_jobs';
  */
 export const saveBatchStatus = async (status: BatchStatus, sessionId?: string) => {
   try {
+    // Ensure session cookie exists
+    try {
+      await fetch('/api/session', { credentials: 'include' });
+    } catch {}
+
     const response = await fetch('/api/batch/jobs', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
+      credentials: 'include',
       body: JSON.stringify({
         jobId: status.jobId,
         status: status.status,

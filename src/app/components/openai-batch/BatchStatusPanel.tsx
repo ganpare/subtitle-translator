@@ -90,8 +90,8 @@ const BatchStatusPanel: React.FC<BatchStatusPanelProps> = ({ apiKey, onResultsRe
 
     setLoading(prev => [...prev, batch.jobId]);
     try {
-      // Use server-side API for better reliability
-      const response = await fetch(`/api/batch/status?jobId=${batch.jobId}&apiKey=${encodeURIComponent(apiKey)}`);
+      // Use server-side API for better reliability (server reads key from env)
+      const response = await fetch(`/api/batch/status?jobId=${batch.jobId}`);
       
       if (!response.ok) {
         throw new Error(`Server error: ${response.status}`);
@@ -117,6 +117,7 @@ const BatchStatusPanel: React.FC<BatchStatusPanelProps> = ({ apiKey, onResultsRe
         body: JSON.stringify({
           jobId: batch.jobId,
           status: status.status,
+          usage: status.usage || undefined,
         }),
       });
       
@@ -130,7 +131,33 @@ const BatchStatusPanel: React.FC<BatchStatusPanelProps> = ({ apiKey, onResultsRe
         const results = await downloadBatchResults(status.outputFileId, apiKey);
         onResultsReady?.(results, batch.jobId);
       } else if (status.status === 'failed') {
-        messageApi.error(`Batch ${batch.jobId} failed`);
+        // Try to surface error details if available
+        try {
+          const errId = (status as any).errorFileId;
+          if (errId && apiKey) {
+            const resp = await fetch(`https://api.openai.com/v1/files/${errId}/content`, {
+              headers: { Authorization: `Bearer ${apiKey}` },
+            });
+            if (resp.ok) {
+              const text = await resp.text();
+              const first = (text.split('\n').find(l => l.trim()) || '').trim();
+              let reason = '';
+              try {
+                const j = JSON.parse(first);
+                reason = j?.error?.message || j?.response?.body?.error?.message || first.slice(0, 300);
+              } catch {
+                reason = first.slice(0, 300);
+              }
+              messageApi.error(`Batch ${batch.jobId} failed: ${reason}`);
+            } else {
+              messageApi.error(`Batch ${batch.jobId} failed (error file fetch ${resp.status})`);
+            }
+          } else {
+            messageApi.error(`Batch ${batch.jobId} failed`);
+          }
+        } catch {
+          messageApi.error(`Batch ${batch.jobId} failed`);
+        }
       }
     } catch (error: any) {
       messageApi.error(`Failed to refresh batch: ${error.message}`);
@@ -237,7 +264,43 @@ const BatchStatusPanel: React.FC<BatchStatusPanelProps> = ({ apiKey, onResultsRe
       const ext = fileType === 'vtt' ? '.vtt' : '.srt';
       const base = (mergeFile.name.replace(/\.[^/.]+$/, '')) || `subtitle_${mergeBatch.jobId.slice(-8)}`;
       const outName = `${base}_translated${ext}`;
-      await downloadFile(merged.join('\n'), outName);
+      const mergedText = merged.join('\n');
+      await downloadFile(mergedText, outName);
+
+      // Save source and translation to server
+      try {
+        const sourceResp = await fetch('/api/subtitles/source', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            filename: mergeFile.name,
+            file_type: fileType,
+            hash: currentHash,
+            size_bytes: mergeFile.size,
+            line_count: contentIndices.length,
+            content: raw,
+          })
+        });
+        if (sourceResp.ok) {
+          const { sourceId } = await sourceResp.json();
+          const lang = mergeBatch.source?.targetLanguage || 'unknown';
+          await fetch('/api/subtitles/translation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              source_id: sourceId,
+              batch_job_id: mergeBatch.jobId,
+              target_language: lang,
+              content: mergedText,
+              status: 'final'
+            })
+          });
+        }
+      } catch (e) {
+        console.warn('Failed to save subtitles to server', e);
+      }
       messageApi.success(`Merged and exported: ${outName}`);
       setMergeOpen(false);
     } catch (e: any) {
@@ -287,9 +350,7 @@ const BatchStatusPanel: React.FC<BatchStatusPanelProps> = ({ apiKey, onResultsRe
     return 10;
   };
 
-  if (batches.length === 0) {
-    return null;
-  }
+  // Always render panel, even if there are no jobs yet
 
   return (
     <>

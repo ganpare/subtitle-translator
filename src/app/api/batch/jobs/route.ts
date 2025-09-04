@@ -5,7 +5,8 @@ import {
   getBatchJobsByUserId, 
   createBatchJob, 
   updateBatchJobStatus, 
-  deleteBatchJob 
+  deleteBatchJob,
+  updateBatchUsage
 } from '@/lib/db-operations';
 
 /**
@@ -134,7 +135,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { jobId, status } = body;
+    const { jobId, status, usage } = body;
 
     if (!jobId || !status) {
       return NextResponse.json(
@@ -152,10 +153,20 @@ export async function PUT(request: NextRequest) {
       );
     }
 
+    if (usage && typeof usage === 'object') {
+      updateBatchUsage(jobId, {
+        input_tokens: usage.input_tokens ?? usage.prompt_tokens ?? usage.input ?? undefined,
+        output_tokens: usage.output_tokens ?? usage.completion_tokens ?? usage.output ?? undefined,
+        total_tokens: usage.total_tokens ?? usage.total ?? undefined,
+        details: usage.details ?? usage,
+      });
+    }
+
     return NextResponse.json({
       success: true,
       jobId,
       status,
+      usage: usage || undefined,
       message: 'Batch job updated successfully'
     });
 

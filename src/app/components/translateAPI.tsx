@@ -506,6 +506,25 @@ const translationServices = {
         sourceLanguage
       });
 
+      // 1.5 Save source metadata early (without content) so server can track by hash/name
+      try {
+        if (sourceMeta) {
+          await fetch('/api/subtitles/source', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              filename: sourceMeta.name,
+              file_type: sourceMeta.fileType,
+              hash: sourceMeta.hash,
+              size_bytes: sourceMeta.size,
+              line_count: sourceMeta.lineCount,
+              // content intentionally omitted at submit time
+            })
+          });
+        }
+      } catch {}
+
       // 2. Upload file to OpenAI
       const { file_id } = await uploadBatchFile(jsonlContent, apiKey);
       console.log("📁 File uploaded:", file_id);
