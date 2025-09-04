@@ -1,35 +1,32 @@
-# 基础镜像
+# ベースイメージ
 FROM node:20-alpine
 
-# 设置工作目录
+# 作業ディレクトリを設定
 WORKDIR /app
 
-# 复制项目中的 package.json 和 yarn.lock 到工作目录中
+# プロジェクトの package.json と yarn.lock を作業ディレクトリにコピー
 COPY package.json yarn.lock ./
 
-# 安装依赖，并清理缓存
+# 依存関係をインストールし、キャッシュをクリーンアップ
 RUN yarn install --frozen-lockfile --network-timeout 100000 && \
     yarn add -D wait-on && \
     yarn cache clean
 
-# 复制项目源代码到工作目录
+# プロジェクトのソースコードを作業ディレクトリにコピー
 COPY . .
 
-# 设置环境变量
+# 環境変数を設定
 ENV NODE_ENV=development
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NEXT_PUBLIC_ENABLE_BATCH=true
 ENV ENABLE_SERVER_BATCH=true
 
-# 暴露端口 3000
+# ポート 3000 を公開
 EXPOSE 3000
 
-# 直接启动开发服务器
+# 開発サーバーを直接起動
 CMD ["yarn", "dev"]
 
-# 最终命令：再次启动开发服务器
-#CMD ["yarn", "dev"]
-
-# 容器构建&运行命令
+# コンテナのビルド&実行コマンド
 # docker build -t subtitle-translator .
 # docker run -d -p 3000:3000 --name subtitle-translator subtitle-translator
