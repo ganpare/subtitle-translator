@@ -15,6 +15,7 @@ import useTranslationQueue from "@/app/hooks/useTranslationQueue";
 import { useTranslations } from "next-intl";
 import SparkMD5 from "spark-md5";
 import type { BatchSourceMeta } from "@/app/components/openai-batch/batchAPI";
+import { useSession } from 'next-auth/react';
 
 const { TextArea } = Input;
 const { Dragger } = Upload;
@@ -23,6 +24,7 @@ const { Paragraph } = Typography;
 const SubtitleTranslator = () => {
   const tSubtitle = useTranslations("subtitle");
   const t = useTranslations("common");
+  const { data: session } = useSession();
 
   const { sourceOptions, targetOptions } = useLanguageOptions();
   const { copyToClipboard } = useCopyToClipboard();
@@ -47,7 +49,9 @@ const SubtitleTranslator = () => {
     translationMethod,
     setTranslationMethod,
     translateContent,
+    translateContentWithDB,
     handleTranslate,
+    handleBatchTranslate,
     getCurrentConfig,
     handleConfigChange,
     sourceLanguage,
@@ -86,7 +90,8 @@ const SubtitleTranslator = () => {
     setTranslatedText("");
   }, [sourceText, setExtractedText, setTranslatedText]);
 
-  const performTranslation = async (sourceText: string, fileNameSet?: string, fileIndex?: number, totalFiles?: number, isSubtitleMode: boolean = true) => {
+  // データベース保存付き翻訳処理
+  const performTranslationWithDB = async (sourceText: string, fileNameSet?: string, fileIndex?: number, totalFiles?: number, isSubtitleMode: boolean = true) => {
     const lines = splitTextIntoLines(sourceText);
     const fileType = detectSubtitleFormat(lines);
     if (fileType === "error") {
@@ -141,8 +146,8 @@ const SubtitleTranslator = () => {
     // For each target language, perform translation
     for (const currentTargetLang of targetLanguagesToUse) {
       try {
-        // Translate content using the specific target language
-        const finalTranslatedLines = await translateContent(
+        // Translate content using the specific target language with DB save
+        const finalTranslatedLines = await translateContentWithDB(
           contentLines,
           translationMethod,
           currentTargetLang,
@@ -256,8 +261,223 @@ const SubtitleTranslator = () => {
         const fileNameWithoutExt = lastDotIndex !== -1 ? fileName.slice(0, lastDotIndex) : fileName;
         const downloadFileName = `${fileNameWithoutExt}_${langLabel}${fileExtension}`;
 
-        // Always download in multi-language mode
-        if (multiLanguageMode || multipleFiles.length > 1) {
+        // Always download in multi-language mode, but skip for batch mode
+        const isBatchMode = translationMethod === 'openai' && config?.batchMode;
+        if (multiLanguageMode || (multipleFiles.length > 1 && !isBatchMode)) {
+          await downloadFile(finalSubtitle, downloadFileName);
+        }
+
+        if (!multiLanguageMode || (multiLanguageMode && currentTargetLang === targetLanguagesToUse[0])) {
+          setTranslatedText(finalSubtitle);
+        }
+
+        if (multiLanguageMode && currentTargetLang !== targetLanguagesToUse[targetLanguagesToUse.length - 1]) {
+          await delay(500);
+        }
+      } catch (error) {
+        console.log(error);
+        messageApi.open({
+          type: "error",
+          content: bilingualSubtitle
+            ? `${error.message} ${tSubtitle("bilingualError")}`
+            : `${error.message} ${sourceOptions.find((option) => option.value === currentTargetLang)?.label || currentTargetLang}  ${t("translationError")}`,
+          duration: 5,
+        });
+      }
+    }
+  };
+
+  const performTranslation = async (sourceText: string, fileNameSet?: string, fileIndex?: number, totalFiles?: number, isSubtitleMode: boolean = true) => {
+    // Check authentication for batch mode
+    const isBatchMode = translationMethod === 'openai' && config?.batchMode;
+    if (isBatchMode && !session) {
+      messageApi.error("バッチモードを使用するにはサインインが必要です。");
+      return;
+    }
+
+    const lines = splitTextIntoLines(sourceText);
+    const fileType = detectSubtitleFormat(lines);
+    if (fileType === "error") {
+      messageApi.error(tSubtitle("unsupportedSub"));
+      return;
+    }
+    let assContentStartIndex = 9;
+
+    if (fileType === "ass") {
+      const eventIndex = lines.findIndex((line) => line.trim() === "[Events]");
+      if (eventIndex !== -1) {
+        for (let i = eventIndex; i < lines.length; i++) {
+          if (lines[i].startsWith("Format:")) {
+            const formatLine = lines[i];
+            assContentStartIndex = formatLine.split(",").length - 1;
+            break;
+          }
+        }
+      }
+
+      if (assContentStartIndex === 9) {
+        const dialogueLines = lines.filter((line) => line.startsWith("Dialogue:")).slice(0, 100);
+        if (dialogueLines.length > 0) {
+          const commaCounts = dialogueLines.map((line) => line.split(",").length - 1);
+          assContentStartIndex = Math.min(...commaCounts);
+        }
+      }
+    }
+
+    const { contentLines, contentIndices, styleBlockLines } = filterSubLines(lines, fileType);
+
+    // Prepare lightweight batch source metadata for later merge
+    const batchSourceMeta: BatchSourceMeta = {
+      name: fileNameSet || multipleFiles[0]?.name,
+      hash: SparkMD5.hash(contentLines.join("\n")),
+      fileType: fileType,
+      lineCount: contentLines.length,
+      targetLanguage: multiLanguageMode ? undefined : targetLanguage,
+      bilingual: bilingualSubtitle,
+      bilingualPosition: bilingualPosition as any,
+    };
+
+    // Determine target languages to translate to
+    const targetLanguagesToUse = multiLanguageMode ? target_langs : [targetLanguage];
+
+    // If no target languages selected in multi-language mode, show error
+    if (multiLanguageMode && targetLanguagesToUse.length === 0) {
+      messageApi.error(t("noTargetLanguage"));
+      return;
+    }
+
+    // For each target language, perform translation
+    for (const currentTargetLang of targetLanguagesToUse) {
+      try {
+        // Translate content using the specific target language
+        // ログインしている場合はデータベース保存付きの関数を使用
+        const finalTranslatedLines = session 
+          ? await translateContentWithDB(
+              contentLines,
+              translationMethod,
+              currentTargetLang,
+              fileIndex,
+              totalFiles,
+              isSubtitleMode && contextAwareTranslation,
+              batchSourceMeta
+            )
+          : await translateContent(
+              contentLines,
+              translationMethod,
+              currentTargetLang,
+              fileIndex,
+              totalFiles,
+              isSubtitleMode && contextAwareTranslation,
+              batchSourceMeta
+            );
+        // Copy array to avoid modifying the original lines
+        const translatedTextArray = [...lines];
+
+        contentIndices.forEach((index, i) => {
+          if (fileType === "ass") {
+            const originalLine = lines[index];
+            const prefix = originalLine.substring(0, originalLine.split(",", assContentStartIndex).join(",").length + 1);
+            if (bilingualSubtitle) {
+              const translatedLine = finalTranslatedLines[i];
+              translatedTextArray[index] =
+                bilingualPosition === "below" ? `${originalLine}\\N${translatedLine}` : `${prefix}${translatedLine}\\N${originalLine.split(",").slice(assContentStartIndex).join(",").trim()}`;
+            } else {
+              translatedTextArray[index] = `${prefix}${finalTranslatedLines[i]}`;
+            }
+          } else if (fileType === "lrc") {
+            const originalLine = lines[index];
+            // 提取原始行中的所有时间标记
+            const timeMatches = originalLine.match(new RegExp(LRC_TIME_REGEX.source, "g")) || [];
+            const timePrefix = timeMatches.join("");
+
+            if (bilingualSubtitle) {
+              const translatedLine = finalTranslatedLines[i];
+              const originalContent = originalLine.replace(new RegExp(LRC_TIME_REGEX.source, "g"), "").trim();
+
+              if (bilingualPosition === "below") {
+                // 原文在上，翻译在下
+                translatedTextArray[index] = `${timePrefix} ${originalContent} / ${translatedLine}`;
+              } else {
+                // 翻译在上，原文在下
+                translatedTextArray[index] = `${timePrefix} ${translatedLine} / ${originalContent}`;
+              }
+            } else {
+              // 仅显示翻译
+              translatedTextArray[index] = `${timePrefix} ${finalTranslatedLines[i]}`;
+            }
+          } else {
+            // 非 .ass 文件处理
+            translatedTextArray[index] = bilingualSubtitle ? `${lines[index]}\n${finalTranslatedLines[i]}` : finalTranslatedLines[i];
+          }
+        });
+
+        let finalSubtitle = "";
+
+        // 处理双语模式下的 SRT 和 VTT 字幕，则将内容转换为 .ass 格式
+        if (bilingualSubtitle && (fileType === "srt" || fileType === "vtt")) {
+          let subtitles = {};
+          // 处理时间线和双语字幕的对齐
+          contentIndices.forEach((index, i) => {
+            // 提取 WebVTT/SRT 时间线，向上寻找有效的时间轴
+            let timeLine = "";
+            let searchIndex = index - 1;
+
+            while (searchIndex >= 0) {
+              if (VTT_SRT_TIME.test(lines[searchIndex])) {
+                timeLine = lines[searchIndex];
+                break;
+              }
+              searchIndex--;
+            }
+
+            if (!timeLine) return;
+
+            const [startTime, endTime] = timeLine.split(" --> ");
+            const assStartTime = convertTimeToAss(startTime.trim());
+            const assEndTime = convertTimeToAss(endTime.trim());
+            const key = `${assStartTime} --> ${assEndTime}`;
+
+            // 根据 bilingualPosition 决定原文和译文的顺序
+            const originalText = lines[index];
+            const translatedText = finalTranslatedLines[i];
+
+            // 根据位置设置字幕行
+            const isOriginalFirst = bilingualPosition === "above";
+            const firstText = isOriginalFirst ? originalText : translatedText;
+            const secondText = isOriginalFirst ? translatedText : originalText;
+
+            // 构建或更新字幕对象
+            if (subtitles[key]) {
+              subtitles[key].first += `\\N${firstText}`;
+              subtitles[key].second += `\\N${secondText}`;
+            } else {
+              subtitles[key] = {
+                first: `Dialogue: 0,${assStartTime},${assEndTime},Secondary,NTP,0000,0000,0000,,${firstText}`,
+                second: `Dialogue: 0,${assStartTime},${assEndTime},Default,NTP,0000,0000,0000,,${secondText}`,
+              };
+            }
+          });
+
+          const assBody = Object.values(subtitles)
+            .map(({ first, second }) => `${first}\n${second}`)
+            .join("\n");
+
+          finalSubtitle = `${assHeader}\n${assBody}`;
+        } else {
+          finalSubtitle = [...translatedTextArray.slice(0, contentIndices[0]), ...styleBlockLines, ...translatedTextArray.slice(contentIndices[0])].join("\n");
+        }
+
+        // Create language-specific file name for download
+        const langLabel = currentTargetLang;
+        const fileExtension = `.${getOutputFileExtension(fileType, bilingualSubtitle)}`;
+        const fileName = fileNameSet || multipleFiles[0]?.name || "subtitle";
+        const lastDotIndex = fileName.lastIndexOf(".");
+        const fileNameWithoutExt = lastDotIndex !== -1 ? fileName.slice(0, lastDotIndex) : fileName;
+        const downloadFileName = `${fileNameWithoutExt}_${langLabel}${fileExtension}`;
+
+        // Always download in multi-language mode, but skip for batch mode
+        const isBatchMode = translationMethod === 'openai' && config?.batchMode;
+        if (multiLanguageMode || (multipleFiles.length > 1 && !isBatchMode)) {
           await downloadFile(finalSubtitle, downloadFileName);
         }
 
@@ -311,6 +531,37 @@ const SubtitleTranslator = () => {
     messageApi.success(tSubtitle("translationComplete"), 10);
   };
 
+  // データベース保存付き複数ファイル翻訳
+  const handleMultipleTranslateWithDB = async () => {
+    const isValid = await validateTranslate();
+    if (!isValid) {
+      return;
+    }
+
+    if (multipleFiles.length === 0) {
+      messageApi.error(tSubtitle("noFileUploaded"));
+      return;
+    }
+
+    setTranslateInProgress(true);
+    setProgressPercent(0);
+
+    for (let i = 0; i < multipleFiles.length; i++) {
+      const currentFile = multipleFiles[i];
+      await new Promise<void>((resolve) => {
+        readFile(currentFile, async (text) => {
+          await performTranslationWithDB(text, currentFile.name, i, multipleFiles.length);
+          await delay(1500);
+          resolve();
+        });
+      });
+    }
+
+    //setMultipleFiles([]);
+    setTranslateInProgress(false);
+    messageApi.success(tSubtitle("translationComplete"), 10);
+  };
+
   const handleExportFile = () => {
     const uploadFileName = multipleFiles[0]?.name;
     const lines = splitTextIntoLines(sourceText);
@@ -353,7 +604,7 @@ const SubtitleTranslator = () => {
     <Spin spinning={isFileProcessing} size="large">
       {contextHolder}
       <Dragger
-        customRequest={({ file }) => {
+        customRequest={({ file, fileList: files }) => {
           const f = file as File;
           if (queueMode) {
             queue.addFiles([f]);
@@ -361,7 +612,7 @@ const SubtitleTranslator = () => {
           return handleFileUpload(f);
         }}
         accept=".srt,.ass,.vtt,.lrc"
-        multiple={!singleFileMode}
+        multiple={true}
         showUploadList
         beforeUpload={singleFileMode ? resetUpload : undefined}
         onRemove={handleUploadRemove}
@@ -488,6 +739,7 @@ const SubtitleTranslator = () => {
         </Form.Item>
       </Form>
       <Flex gap="small">
+        {/* 通常翻訳ボタン */}
         <Button
           type="primary"
           block
@@ -516,6 +768,57 @@ const SubtitleTranslator = () => {
           disabled={translateInProgress}>
           {multiLanguageMode ? `${t("translate")} | ${t("totalLanguages")}${target_langs.length || 0}` : t("translate")}
         </Button>
+        
+        {/* データベース保存付き通常翻訳ボタン - ログイン済み時のみ表示 */}
+        {session && (
+          <Button
+            type="default"
+            block
+            onClick={async () => {
+              if (!queueMode) {
+                return uploadMode === "single" ? handleTranslateWithDB(performTranslationWithDB, sourceText, contextAwareTranslation) : handleMultipleTranslateWithDB();
+              }
+              if (fileList.length === 0) {
+                messageApi.error(tSubtitle("noFileUploaded"));
+                return;
+              }
+              // push current fileList to queue and start
+              const files = fileList.map((f) => f.originFileObj as File).filter(Boolean);
+              queue.addFiles(files);
+              const isValid = await validateTranslate();
+              if (!isValid) return;
+              queue.start(async (item) => {
+                await new Promise<void>((resolve) => {
+                  readFile(item.file, async (text) => {
+                    await performTranslationWithDB(text, item.name, 0, 1);
+                    resolve();
+                  });
+                });
+              });
+            }}
+            disabled={translateInProgress}
+            style={{ borderColor: '#52c41a', color: '#52c41a' }}>
+            💾 翻訳（DB保存）
+          </Button>
+        )}
+        
+        {/* バッチ翻訳ボタン - ログイン済みかつOpenAI選択時のみ表示 */}
+        {session && translationMethod === 'openai' && config?.batchMode && (
+          <Button
+            type="default"
+            block
+            onClick={async () => {
+              if (uploadMode === "single") {
+                await handleBatchTranslate(sourceText, contextAwareTranslation, bilingualSubtitle, bilingualPosition, contextAwareTranslation);
+              } else {
+                messageApi.error("バッチ翻訳は単一ファイルモードでのみ利用可能です。");
+              }
+            }}
+            disabled={translateInProgress}
+            style={{ borderColor: '#1890ff', color: '#1890ff' }}>
+            🚀 バッチ翻訳
+          </Button>
+        )}
         <Tooltip title={t("exportSettingTooltip")}>
           <Button
             icon={<DownloadOutlined />}

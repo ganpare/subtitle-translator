@@ -55,9 +55,24 @@ const useFileUpload = () => {
     const uniqueFileList = updatedFileList.filter((value, index, self) => index === self.findIndex((t) => t.name === value.name && t.size === value.size));
     setFileList(uniqueFileList);
 
+    // Update multipleFiles with all uploaded files
+    const newFiles = uniqueFileList
+      .map(f => f.originFileObj)
+      .filter((file): file is File => file !== undefined);
+    
+    setMultipleFiles(newFiles);
+
     if (uniqueFileList.length > 1 && uploadMode === "single") {
       setSourceText("");
       setUploadMode("multiple");
+    } else if (uniqueFileList.length === 1 && uploadMode === "multiple") {
+      setUploadMode("single");
+      // Read the single file content
+      if (newFiles.length > 0) {
+        readFile(newFiles[0], (text) => {
+          setSourceText(text);
+        });
+      }
     } else if (uniqueFileList.length === 0) {
       resetUpload();
     }

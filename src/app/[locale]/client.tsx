@@ -5,6 +5,7 @@ import { Tabs, TabsProps, Typography } from "antd";
 import { VideoCameraOutlined, QuestionCircleOutlined } from "@ant-design/icons";
 import TranslationSettings from "@/app/components/TranslationSettings";
 import SubtitleTranslator from "./SubtitleTranslator";
+import UserStatus from "@/app/components/UserStatus";
 import { useTranslations, useLocale } from "next-intl";
 
 const { Title, Paragraph, Link } = Typography;
@@ -52,18 +53,40 @@ const ClientPage = () => {
     },
   ];
 
+  // Hydration エラーを完全に回避するため、マウント前は静的なHTMLを表示
+  if (!mounted) {
+    return (
+      <>
+        <h3 suppressHydrationWarning>
+          <VideoCameraOutlined /> {tSubtitle("clientTitle")}
+        </h3>
+        <p suppressHydrationWarning>
+          <a href={userGuideUrl} target="_blank" rel="noopener noreferrer">
+            {t("userGuide")}
+          </a>{" "}
+          {tSubtitle("clientDescription")} {t("privacyNotice")}
+        </p>
+        <div className="w-full h-96 bg-gray-100 animate-pulse rounded"></div>
+      </>
+    );
+  }
+
   return (
     <>
-      <h3 suppressHydrationWarning>
-        <VideoCameraOutlined /> {tSubtitle("clientTitle")}
-      </h3>
-
-      <p suppressHydrationWarning>
-        <a href={userGuideUrl} target="_blank" rel="noopener noreferrer">
-          {t("userGuide")}
-        </a>{" "}
-        {tSubtitle("clientDescription")} {t("privacyNotice")}
-      </p>
+      <div className="flex justify-between items-start mb-4">
+        <div>
+          <h3 suppressHydrationWarning>
+            <VideoCameraOutlined /> {tSubtitle("clientTitle")}
+          </h3>
+          <p suppressHydrationWarning className="mt-2">
+            <a href={userGuideUrl} target="_blank" rel="noopener noreferrer">
+              {t("userGuide")}
+            </a>{" "}
+            {tSubtitle("clientDescription")} {t("privacyNotice")}
+          </p>
+        </div>
+        <UserStatus />
+      </div>
 
       <Tabs activeKey={activeKey} onChange={handleTabChange} items={items} type="card" className="w-full" destroyOnHidden={true} animated={{ inkBar: true, tabPane: true }} />
     </>

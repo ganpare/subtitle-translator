@@ -73,6 +73,7 @@ export const defaultConfigs = {
     temperature: 1.0,
     limit: 20,
     batchMode: false,
+    batchLimit: 20,
   },
   gemini: {
     apiKey: "",
@@ -744,6 +745,16 @@ const translateText = async (params: TranslateTextParams): Promise<string | null
       .replace(/&amp;/g, "&")
       .replace(/&lt;/g, "<")
       .replace(/&gt;/g, ">");
+
+    // 翻訳品質の検証
+    const { validateTranslation } = await import('@/app/utils/translationValidator');
+    const validation = validateTranslation(text, cleanedText, targetLanguage);
+    
+    if (!validation.isValid) {
+      console.warn(`Translation quality issue: ${validation.reason}`);
+      console.log(`Using original text due to translation quality issue`);
+      return text; // 原文を返す
+    }
 
     localStorage.setItem(cacheKey, cleanedText);
     return cleanedText;

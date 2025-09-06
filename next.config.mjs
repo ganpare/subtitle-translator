@@ -21,7 +21,7 @@ const nextConfig = {
   assetPrefix: isProd
     ? "/" // production
     : internalHost
-    ? `http://${internalHost}:3000` // dev + TAURI_DEV_HOST provided
+    ? `http://${internalHost}:3010` // dev + TAURI_DEV_HOST provided
     : "/", // dev + no TAURI_DEV_HOST
   // Fix Jest worker issues
   experimental: {

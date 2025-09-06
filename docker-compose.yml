@@ -4,14 +4,13 @@ services:
   subtitle-translator:
     build: .
     ports:
-      - "3000:3000"
+      - "3010:3010"
+    env_file:
+      - .env
     environment:
       - NODE_ENV=development
       - NEXT_TELEMETRY_DISABLED=1
-      - NEXT_PUBLIC_ENABLE_BATCH=true
-      - ENABLE_SERVER_BATCH=true
-      # OpenAI API Key - 本番環境では必ず設定してください
-      # - OPENAI_API_KEY=your_openai_api_key_here
+      - CRON_SECRET=your-cron-secret-key-here
     volumes:
       # データベースファイルを永続化
       - ./data:/app/data
@@ -20,7 +19,7 @@ services:
       - ./public:/app/public
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3010"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -28,5 +27,6 @@ services:
 
 # 使用方法:
 # 1. docker-compose up -d
-# 2. http://localhost:3000 でアクセス
-# 3. 環境変数 OPENAI_API_KEY を設定してバッチ機能を使用
+# 2. http://localhost:3010 でアクセス
+# 3. 環境変数 GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET を設定してOAuth認証を使用
+# 4. 環境変数 OPENAI_API_KEY を設定してバッチ機能を使用

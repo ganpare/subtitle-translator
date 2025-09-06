@@ -21,12 +21,12 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV NEXT_PUBLIC_ENABLE_BATCH=true
 ENV ENABLE_SERVER_BATCH=true
 
-# ポート 3000 を公開
-EXPOSE 3000
+# ポート 3010 を公開
+EXPOSE 3010
 
 # 開発サーバーを直接起動
 CMD ["yarn", "dev"]
 
 # コンテナのビルド&実行コマンド
 # docker build -t subtitle-translator .
-# docker run -d -p 3000:3000 --name subtitle-translator subtitle-translator
+# docker run -d -p 3010:3010 --name subtitle-translator subtitle-translator

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import { 
-  getUserBySessionId, 
   getBatchJobsByUserId, 
   createBatchJob, 
   updateBatchJobStatus, 
@@ -16,25 +16,16 @@ import {
 
 export async function GET(request: NextRequest) {
   try {
-    const cookieStore = cookies();
-    const sessionId = cookieStore.get('session_id')?.value;
+    const session = await getServerSession(authOptions);
     
-    if (!sessionId) {
+    if (!session?.user?.email) {
       return NextResponse.json(
-        { error: 'Session not found' },
+        { error: 'Authentication required' },
         { status: 401 }
       );
     }
 
-    const user = getUserBySessionId(sessionId);
-    if (!user) {
-      return NextResponse.json(
-        { error: 'User not found' },
-        { status: 404 }
-      );
-    }
-
-    const batchJobs = getBatchJobsByUserId(user.id);
+    const batchJobs = getBatchJobsByUserId(session.user.id).filter(job => !job.is_completed);
     
     // Convert database format to API format
     const jobs = batchJobs.map(job => ({
@@ -42,9 +33,14 @@ export async function GET(request: NextRequest) {
       jobId: job.openai_job_id,
       status: job.status,
       createdAt: job.created_at,
-      chunkIds: JSON.parse(job.chunk_ids),
-      source: job.source_meta ? JSON.parse(job.source_meta) : undefined,
+      chunkIds: job.chunk_ids,
+      source: job.source_meta,
       userId: job.user_id,
+      usage: job.usage_input_tokens ? {
+        input_tokens: job.usage_input_tokens,
+        output_tokens: job.usage_output_tokens,
+        total_tokens: job.usage_total_tokens,
+      } : undefined,
     }));
     
     return NextResponse.json({
@@ -63,21 +59,12 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const cookieStore = cookies();
-    const sessionId = cookieStore.get('session_id')?.value;
+    const session = await getServerSession(authOptions);
     
-    if (!sessionId) {
+    if (!session?.user?.email) {
       return NextResponse.json(
-        { error: 'Session not found' },
+        { error: 'Authentication required' },
         { status: 401 }
-      );
-    }
-
-    const user = getUserBySessionId(sessionId);
-    if (!user) {
-      return NextResponse.json(
-        { error: 'User not found' },
-        { status: 404 }
       );
     }
 
@@ -97,7 +84,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create new batch job in database
-    const batchJob = createBatchJob(user.id, jobId, chunkIds, source);
+    const batchJob = createBatchJob(session.user.id, jobId, chunkIds, source);
 
     return NextResponse.json({
       success: true,
@@ -116,26 +103,21 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    const cookieStore = cookies();
-    const sessionId = cookieStore.get('session_id')?.value;
+    const session = await getServerSession(authOptions);
     
-    if (!sessionId) {
+    if (!session?.user?.email) {
       return NextResponse.json(
-        { error: 'Session not found' },
+        { error: 'Authentication required' },
         { status: 401 }
       );
     }
 
-    const user = getUserBySessionId(sessionId);
-    if (!user) {
-      return NextResponse.json(
-        { error: 'User not found' },
-        { status: 404 }
-      );
-    }
-
     const body = await request.json();
-    const { jobId, status, usage } = body;
+    const { 
+      jobId, 
+      status, 
+      usage 
+    } = body;
 
     if (!jobId || !status) {
       return NextResponse.json(
@@ -144,29 +126,11 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const success = updateBatchJobStatus(jobId, status);
-
-    if (!success) {
-      return NextResponse.json(
-        { error: 'Batch job not found' },
-        { status: 404 }
-      );
-    }
-
-    if (usage && typeof usage === 'object') {
-      updateBatchUsage(jobId, {
-        input_tokens: usage.input_tokens ?? usage.prompt_tokens ?? usage.input ?? undefined,
-        output_tokens: usage.output_tokens ?? usage.completion_tokens ?? usage.output ?? undefined,
-        total_tokens: usage.total_tokens ?? usage.total ?? undefined,
-        details: usage.details ?? usage,
-      });
-    }
+    // Update batch job status
+    updateBatchJobStatus(jobId, status, usage);
 
     return NextResponse.json({
       success: true,
-      jobId,
-      status,
-      usage: usage || undefined,
       message: 'Batch job updated successfully'
     });
 
@@ -181,21 +145,12 @@ export async function PUT(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const cookieStore = cookies();
-    const sessionId = cookieStore.get('session_id')?.value;
+    const session = await getServerSession(authOptions);
     
-    if (!sessionId) {
+    if (!session?.user?.email) {
       return NextResponse.json(
-        { error: 'Session not found' },
+        { error: 'Authentication required' },
         { status: 401 }
-      );
-    }
-
-    const user = getUserBySessionId(sessionId);
-    if (!user) {
-      return NextResponse.json(
-        { error: 'User not found' },
-        { status: 404 }
       );
     }
 
@@ -209,18 +164,11 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    const success = deleteBatchJob(jobId, user.id);
-
-    if (!success) {
-      return NextResponse.json(
-        { error: 'Batch job not found' },
-        { status: 404 }
-      );
-    }
+    // Delete batch job
+    deleteBatchJob(jobId);
 
     return NextResponse.json({
       success: true,
-      jobId,
       message: 'Batch job deleted successfully'
     });
 

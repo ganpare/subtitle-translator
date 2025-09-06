@@ -9,6 +9,10 @@ import { generateCacheSuffix, checkLanguageSupport, splitTextIntoChunks, testTra
 import pLimit from "p-limit";
 import pRetry from "p-retry";
 import { useTranslations } from "next-intl";
+import { splitTextIntoLines, detectSubtitleFormat, filterSubLines, LRC_TIME_REGEX } from "@/app/utils/subtitle-parser";
+import { createContextChunks } from "@/app/utils/contextChunker";
+import { BatchSourceMeta } from "@/app/components/openai-batch/batchAPI";
+import SparkMD5 from "spark-md5";
 
 const DEFAULT_SYS_PROMPT = "You are a professional translator. Respond only with the content, either translated or rewritten. Do not add explanations, comments, or any extra text.";
 const DEFAULT_USER_PROMPT = "Please respect the original meaning, maintain the original format, and rewrite the following content in ${targetLanguage}.\n\n${content}";
@@ -201,10 +205,9 @@ const useTranslateData = () => {
     });
   };
 
-  const handleConfigChange = (method: string, field: string, value: string | number) => {
+  const handleConfigChange = (method: string, field: string, value: string | number | boolean) => {
     setTranslationConfigs((prev) => {
-      const currentConfig = prev[method];
-      if (!currentConfig) return prev; // 确保 method 存在，防止 undefined 赋值时报错
+      const currentConfig = prev[method] || defaultConfigs[method] || {};
       return {
         ...prev,
         [method]: {
@@ -351,6 +354,245 @@ const useTranslateData = () => {
     setExtractedText("");
   };
 
+  // データベース保存付き翻訳用のハンドラー
+  const handleTranslateWithDB = async (performTranslation: Function, sourceText: string, isSubtitleMode: boolean = false) => {
+    setTranslatedText("");
+    if (!sourceText.trim()) {
+      message.error("No source text provided.");
+      return;
+    }
+
+    const isValid = await validateTranslate();
+    if (!isValid) {
+      return;
+    }
+
+    setTranslateInProgress(true);
+    setProgressPercent(0);
+
+    await performTranslation(sourceText, undefined, undefined, undefined, isSubtitleMode);
+    setTranslateInProgress(false);
+    setExtractedText("");
+  };
+
+  // バッチ翻訳専用の関数
+  const handleBatchTranslate = async (sourceText: string, isSubtitleMode: boolean = false, bilingualSubtitle: boolean = false, bilingualPosition: string = "below", contextAwareTranslation: boolean = true) => {
+    setTranslatedText("");
+    if (!sourceText.trim()) {
+      message.error("No source text provided.");
+      return;
+    }
+
+    // バッチ翻訳の場合は認証チェックのみ
+    const config = getCurrentConfig();
+    if (translationMethod !== 'openai' || !config?.batchMode) {
+      message.error("バッチ翻訳はOpenAIのバッチモードでのみ利用可能です。");
+      return;
+    }
+
+    setTranslateInProgress(true);
+    setProgressPercent(0);
+
+    try {
+      // バッチ翻訳の処理を直接実行
+      await performBatchTranslation(sourceText, undefined, undefined, undefined, isSubtitleMode, bilingualSubtitle, bilingualPosition, contextAwareTranslation);
+    } catch (error) {
+      console.error("Batch translation error:", error);
+      console.error("Error details:", {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
+      message.error(`バッチ翻訳中にエラーが発生しました: ${error.message}`);
+    } finally {
+      setTranslateInProgress(false);
+      setExtractedText("");
+    }
+  };
+
+  // ログイン時通常翻訳用の関数（データベース保存付き）
+  const translateContentWithDB = async (
+    contentLines: string[],
+    translationMethod: string,
+    currentTargetLang: string,
+    fileIndex: number = 0,
+    totalFiles: number = 1,
+    isSubtitleMode: boolean = false,
+    batchSourceMeta?: import("@/app/components/openai-batch/batchAPI").BatchSourceMeta
+  ) => {
+    // 既存のtranslateContent関数を呼び出し
+    const translatedLines = await translateContent(
+      contentLines,
+      translationMethod,
+      currentTargetLang,
+      fileIndex,
+      totalFiles,
+      isSubtitleMode,
+      batchSourceMeta
+    );
+
+    // 翻訳履歴をデータベースに保存
+    try {
+      await saveTranslationHistory(
+        contentLines,
+        translatedLines,
+        translationMethod,
+        currentTargetLang,
+        batchSourceMeta
+      );
+    } catch (error) {
+      console.error("Failed to save translation history:", error);
+      // エラーが発生しても翻訳結果は返す
+    }
+
+    return translatedLines;
+  };
+
+  // 翻訳履歴をデータベースに保存する関数
+  const saveTranslationHistory = async (
+    sourceLines: string[],
+    translatedLines: string[],
+    translationMethod: string,
+    targetLanguage: string,
+    batchSourceMeta?: import("@/app/components/openai-batch/batchAPI").BatchSourceMeta
+  ) => {
+    try {
+      // ログイン状態をチェック
+      const sessionResponse = await fetch('/api/auth/session');
+      if (!sessionResponse.ok) {
+        console.log("User not logged in, skipping database save");
+        return;
+      }
+
+      const session = await sessionResponse.json();
+      if (!session?.user?.id) {
+        console.log("No user ID found, skipping database save");
+        return;
+      }
+
+      // 翻訳履歴を保存
+      const response = await fetch('/api/translation/history', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sourceText: sourceLines.join('\n'),
+          translatedText: translatedLines.join('\n'),
+          service: translationMethod,
+          targetLanguage: targetLanguage,
+          sourceLanguage: sourceLanguage,
+          usage: null, // 通常翻訳では使用量情報なし
+          batchJobId: null, // 通常翻訳ではバッチジョブIDなし
+          sourceMeta: batchSourceMeta || {
+            name: "normal-translation",
+            hash: SparkMD5.hash(sourceLines.join('\n')),
+            fileType: "text",
+            lineCount: sourceLines.length,
+            targetLanguage: targetLanguage,
+            bilingual: false,
+            bilingualPosition: "below"
+          }
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to save translation history: ${response.status}`);
+      }
+
+      console.log("Translation history saved successfully");
+    } catch (error) {
+      console.error("Error saving translation history:", error);
+      throw error;
+    }
+  };
+
+  // バッチ翻訳の実行関数（バッチジョブ作成専用）
+  const performBatchTranslation = async (sourceText: string, fileNameSet?: string, fileIndex?: number, totalFiles?: number, isSubtitleMode: boolean = true, bilingualSubtitle: boolean = false, bilingualPosition: string = "below", contextAwareTranslation: boolean = true) => {
+    console.log("🚀 Creating batch translation job...", {
+      sourceTextLength: sourceText.length,
+      fileNameSet,
+      fileIndex,
+      totalFiles,
+      isSubtitleMode
+    });
+
+    const lines = splitTextIntoLines(sourceText);
+    const fileType = detectSubtitleFormat(lines);
+    console.log("📝 File analysis:", { fileType, lineCount: lines.length });
+    
+    if (fileType === "error") {
+      console.error("❌ Unsupported subtitle format");
+      message.error("サポートされていない字幕形式です。");
+      return;
+    }
+
+    const { contentLines, contentIndices } = filterSubLines(lines, fileType);
+    
+    // 対象言語の決定
+    const targetLanguagesToUse = multiLanguageMode ? target_langs : [targetLanguage];
+    if (multiLanguageMode && targetLanguagesToUse.length === 0) {
+      message.error("対象言語が選択されていません。");
+      return;
+    }
+
+    // バッチ翻訳用のメタデータ
+    const batchSourceMeta: BatchSourceMeta = {
+      name: fileNameSet || "batch-translation",
+      hash: SparkMD5.hash(contentLines.join("\n")),
+      fileType: fileType,
+      lineCount: contentLines.length,
+      targetLanguage: multiLanguageMode ? undefined : targetLanguage,
+      bilingual: bilingualSubtitle,
+      bilingualPosition: bilingualPosition as any,
+    };
+
+    // 各対象言語でバッチジョブを作成
+    for (const currentTargetLang of targetLanguagesToUse) {
+      try {
+        console.log(`📤 Creating batch job for ${currentTargetLang}...`);
+        
+        // バッチ翻訳のAPIを呼び出し（翻訳は実行せず、ジョブのみ作成）
+        const response = await fetch('/api/batch/translate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            chunks: contentLines.map((line, index) => ({
+              id: `chunk-${fileIndex || 0}-${index.toString().padStart(4, '0')}`,
+              text: line
+            })),
+            model: getCurrentConfig()?.model || 'gpt-4o-mini',
+            temperature: getCurrentConfig()?.temperature || 1.0,
+            sysPrompt: getCurrentConfig()?.sysPrompt,
+            userPrompt: getCurrentConfig()?.userPrompt,
+            targetLanguage: currentTargetLang,
+            sourceLanguage,
+            sourceMeta: {
+              ...batchSourceMeta,
+              contextChunks: isSubtitleMode && contentLines.length > 1,
+              contextWindow: isSubtitleMode && contentLines.length > 1 ? (getCurrentConfig()?.batchLimit || 20) : 1,
+            },
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Server error: ${response.status}`);
+        }
+
+        const result = await response.json();
+        console.log(`✅ Batch job created for ${currentTargetLang}:`, result);
+        
+        message.success(`${currentTargetLang}のバッチ翻訳ジョブが作成されました。完了まで数分～24時間かかる場合があります。`);
+
+      } catch (error) {
+        console.error(`Batch job creation error for ${currentTargetLang}:`, error);
+        message.error(`${currentTargetLang}のバッチジョブ作成中にエラーが発生しました: ${error.message}`);
+      }
+    }
+  };
+
   async function retryTranslate(text, cacheSuffix, config) {
     try {
       return await pRetry(
@@ -414,18 +656,69 @@ const useTranslateData = () => {
       // Handle OpenAI Batch Mode
       if (translationMethod === 'openai' && config?.batchMode) {
         console.log("🚀 Using OpenAI Batch Mode for cost reduction");
+        console.log("🔍 Batch mode config:", { 
+          translationMethod, 
+          batchMode: config?.batchMode, 
+          batchLimit: config?.batchLimit,
+          isSubtitleMode,
+          contentLinesLength: contentLines.length
+        });
         
-        const chunks = contentLines.map((line, index) => ({
-          id: `chunk-${fileIndex}-${index.toString().padStart(4, '0')}`,
-          text: line
-        }));
+        // 共通のチャンク作成関数を使用
+        let chunks: Array<{ id: string; text: string }> = [];
+        
+        if (isSubtitleMode && contentLines.length > 1) {
+          // 字幕翻訳の場合：文脈維持チャンク分割
+          const contextWindow = Math.min(config?.batchLimit || 20, contentLines.length);
+          console.log(`📝 Using batch context window: ${contextWindow} lines`);
+          
+          // 共通のチャンク作成関数を使用
+          const contextChunks = createContextChunks(contentLines, contextWindow, 'batch');
+          chunks = contextChunks.map(chunk => ({
+            id: `chunk-${fileIndex}-${chunk.id}`,
+            text: chunk.text
+          }));
+        } else {
+          // 通常の行単位処理
+          chunks = contentLines.map((line, index) => ({
+            id: `chunk-${fileIndex}-${index.toString().padStart(4, '0')}`,
+            text: line
+          }));
+        }
 
         try {
-          const batchResult = await translateBatch(chunks, {
-            ...translationConfig,
-            batchMode: true,
-            sourceMeta: batchSourceMeta,
-          } as any);
+          console.log("📤 Sending batch request to server...");
+          console.log("📦 Chunks:", chunks.length, "chunks");
+          
+          // Use server-side batch API for authenticated users
+          const response = await fetch('/api/batch/translate', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              chunks,
+              model: config?.model || 'gpt-4o-mini',
+              temperature: config?.temperature || 1.0,
+              sysPrompt,
+              userPrompt,
+              targetLanguage: currentTargetLang,
+              sourceLanguage,
+              sourceMeta: {
+                ...batchSourceMeta,
+                contextChunks: isSubtitleMode && contentLines.length > 1,
+                contextWindow: isSubtitleMode && contentLines.length > 1 ? (config?.batchLimit || 20) : 1,
+              },
+            }),
+          });
+          
+          console.log("📥 Server response status:", response.status);
+
+          if (!response.ok) {
+            throw new Error(`Server error: ${response.status}`);
+          }
+
+          const batchResult = await response.json();
 
           // Show success message and return placeholder results
           // Actual translation will be available later via BatchStatusPanel
@@ -493,61 +786,105 @@ const useTranslateData = () => {
     }
   };
 
-  // 新增：带上下文的翻译函数
+  // 共通の文脈維持チャンク作成関数
+  const createContextChunks = (contentLines: string[], contextWindow: number, mode: 'batch' | 'normal' = 'normal') => {
+    const chunks: Array<{ 
+      id: string; 
+      text: string; 
+      startIndex: number; 
+      endIndex: number;
+      isContextChunk?: boolean;
+    }> = [];
+
+    if (mode === 'batch') {
+      // バッチモード：固定サイズのチャンク
+      for (let i = 0; i < contentLines.length; i += contextWindow) {
+        const contextLines = contentLines.slice(i, i + contextWindow);
+        const contextText = contextLines.join('\n');
+        
+        chunks.push({
+          id: `chunk-${i.toString().padStart(4, '0')}`,
+          text: contextText,
+          startIndex: i,
+          endIndex: Math.min(i + contextWindow, contentLines.length),
+          isContextChunk: true
+        });
+      }
+    } else {
+      // 通常モード：オーバーラップ付きチャンク
+      for (let i = 0; i < contentLines.length; i += contextWindow) {
+        const batchEnd = Math.min(i + contextWindow, contentLines.length);
+        const contextStart = Math.max(0, i - Math.floor(contextWindow / 2));
+        const contextEnd = Math.min(contentLines.length, batchEnd + Math.floor(contextWindow / 2));
+        
+        const contextLines = contentLines.slice(contextStart, contextEnd);
+        const targetStartIndex = i - contextStart;
+        const targetEndIndex = batchEnd - contextStart;
+        
+        // マーカー付きで文脈を構築
+        const contextWithMarkers = contextLines
+          .map((line, index) => {
+            if (index >= targetStartIndex && index < targetEndIndex) {
+              return `[TRANSLATE_${index - targetStartIndex}]${line}[/TRANSLATE_${index - targetStartIndex}]`;
+            }
+            return `[CONTEXT]${line}[/CONTEXT]`;
+          })
+          .join("\n");
+        
+        chunks.push({
+          id: `chunk-${i.toString().padStart(4, '0')}`,
+          text: contextWithMarkers,
+          startIndex: i,
+          endIndex: batchEnd,
+          isContextChunk: true
+        });
+      }
+    }
+
+    return chunks;
+  };
+
+  // 統合された文脈維持翻訳関数
   const translateWithContext = async (contentLines: string[], translationConfig: any, cacheSuffix: string, updateProgress: (current: number, total: number) => void) => {
-    const contextWindow = Math.min(translationConfig.limit || 20, contentLines.length); // 上下文窗口大小，使用配置中的limit值，不超过总行数
+    const contextWindow = Math.min(translationConfig.limit || 20, contentLines.length);
     const translatedLines = new Array(contentLines.length);
+    
+    // 共通のチャンク作成関数を使用
+    const chunks = createContextChunks(contentLines, contextWindow, 'normal');
 
-    // 分批处理，每批包含一定的上下文
-    for (let i = 0; i < contentLines.length; i += contextWindow) {
-      const batchEnd = Math.min(i + contextWindow, contentLines.length);
-      const contextStart = Math.max(0, i - Math.floor(contextWindow / 2));
-      const contextEnd = Math.min(contentLines.length, batchEnd + Math.floor(contextWindow / 2));
-
-      // 构建包含上下文的内容
-      const contextLines = contentLines.slice(contextStart, contextEnd);
-      const targetStartIndex = i - contextStart;
-      const targetEndIndex = batchEnd - contextStart;
-
-      // 标记需要翻译的行，为每行添加序号以便识别
-      const contextWithMarkers = contextLines
-        .map((line, index) => {
-          if (index >= targetStartIndex && index < targetEndIndex) {
-            return `[TRANSLATE_${index - targetStartIndex}]${line}[/TRANSLATE_${index - targetStartIndex}]`;
-          }
-          return `[CONTEXT]${line}[/CONTEXT]`;
-        })
-        .join("\n");
-
+    // 各チャンクを処理
+    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+      const chunk = chunks[chunkIndex];
+      
       try {
-        const result = await retryTranslate(contextWithMarkers, cacheSuffix, {
+        const result = await retryTranslate(chunk.text, cacheSuffix, {
           ...translationConfig,
           userPrompt: userPrompt.replace(
             "${content}",
-            `Context: This is part of a subtitle file. Only translate the lines marked with [TRANSLATE_X][/TRANSLATE_X] tags (where X is the line number). Use the [CONTEXT][/CONTEXT] lines for understanding but do not translate them. Maintain the natural flow of dialogue and keep the same numbering in your response.\n\n${contextWithMarkers}`
+            `Context: This is part of a subtitle file. Only translate the lines marked with [TRANSLATE_X][/TRANSLATE_X] tags (where X is the line number). Use the [CONTEXT][/CONTEXT] lines for understanding but do not translate them. Maintain the natural flow of dialogue and keep the same numbering in your response.\n\n${chunk.text}`
           ),
         });
 
         // 解析结果，提取翻译的行
-        const translatedBatch = extractTranslatedLinesWithNumbers(result, batchEnd - i);
+        const translatedBatch = extractTranslatedLinesWithNumbers(result, chunk.endIndex - chunk.startIndex);
 
         // 将翻译结果放入对应位置
         for (let j = 0; j < translatedBatch.length; j++) {
-          if (i + j < contentLines.length && translatedBatch[j]) {
-            translatedLines[i + j] = translatedBatch[j];
+          if (chunk.startIndex + j < contentLines.length && translatedBatch[j]) {
+            translatedLines[chunk.startIndex + j] = translatedBatch[j];
           }
         }
 
-        updateProgress(batchEnd, contentLines.length);
+        updateProgress(chunk.endIndex, contentLines.length);
 
         // 添加延迟以避免API限制
-        if (batchEnd < contentLines.length) {
+        if (chunkIndex < chunks.length - 1) {
           await delay(translationConfig.delayTime || 500);
         }
       } catch (error) {
-        console.warn(`Context translation failed for batch ${i}-${batchEnd}, falling back to individual translation`);
+        console.warn(`Context translation failed for chunk ${chunkIndex}, falling back to individual translation`);
         // 回退到逐行翻译
-        for (let j = i; j < batchEnd; j++) {
+        for (let j = chunk.startIndex; j < chunk.endIndex; j++) {
           try {
             translatedLines[j] = await retryTranslate(contentLines[j], cacheSuffix, translationConfig);
           } catch (lineError) {
@@ -660,7 +997,10 @@ const useTranslateData = () => {
     setUseCache,
     retryTranslate,
     translateContent,
+    translateContentWithDB,
     handleTranslate,
+    handleTranslateWithDB,
+    handleBatchTranslate,
     sourceLanguage,
     targetLanguage,
     target_langs,

@@ -7,6 +7,7 @@ import { listModels } from "@/app/components/translateAPI";
 import useTranslateData from "@/app/hooks/useTranslateData";
 import { useTranslations } from "next-intl";
 import BatchStatusPanel from "@/app/components/openai-batch/BatchStatusPanel";
+import AuthRequired from "./AuthRequired";
 
 const { Text, Link } = Typography;
 const { TextArea } = Input;
@@ -224,12 +225,23 @@ const TranslationSettings = () => {
               </Form.Item>
             )}
             {service === "openai" && config?.batchMode !== undefined && (
-              <Form.Item label="バッチモード（実験的）" extra="非同期処理で約50%コスト削減。完了まで数分～24時間">
+              <Form.Item label="バッチモード（実験的）" extra="非同期処理で約50%コスト削減。完了まで数分～24時間。バッチモード使用時はサインインが必要です。">
                 <Switch 
                   checked={config.batchMode} 
-                  onChange={(checked) => handleConfigChange(service, "batchMode", checked)}
+                  onChange={(checked) => handleConfigChange(service, "batchMode", checked as any)}
                   checkedChildren="有効"
                   unCheckedChildren="無効"
+                />
+              </Form.Item>
+            )}
+            {service === "openai" && config?.batchMode && (
+              <Form.Item label={t("batchLimit")} extra={t("batchLimitExtra")}>
+                <Input 
+                  type="number" 
+                  value={config?.batchLimit || 20} 
+                  onChange={(e) => handleConfigChange(service, "batchLimit", parseInt(e.target.value) || 20)}
+                  min={1}
+                  max={100}
                 />
               </Form.Item>
             )}
@@ -327,14 +339,15 @@ const TranslationSettings = () => {
             </div>
           </Form>
         </Card>
-        {service === "openai" && config?.apiKey && (
-          <BatchStatusPanel 
-            apiKey={config.apiKey}
-            onResultsReady={(results, jobId) => {
-              console.log(`Batch results ready for job ${jobId}:`, results);
-              messageApi.success(`Batch translation completed! Job: ${jobId}`);
-            }}
-          />
+        {service === "openai" && config?.batchMode && (
+          <AuthRequired feature="OpenAI Batch Translation">
+            <BatchStatusPanel 
+              onResultsReady={(results, jobId) => {
+                console.log(`Batch results ready for job ${jobId}:`, results);
+                messageApi.success(`Batch translation completed! Job: ${jobId}`);
+              }}
+            />
+          </AuthRequired>
         )}
         <Modal
           title={t("savePreset")}

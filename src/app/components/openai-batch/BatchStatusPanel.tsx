@@ -11,15 +11,15 @@ import {
 import { downloadFile } from '@/app/utils';
 import SparkMD5 from 'spark-md5';
 import { detectSubtitleFormat, filterSubLines } from '@/app/[locale]/subtitleUtils';
+import { useBatchPolling } from '@/app/hooks/useBatchPolling';
 
 const { Text } = Typography;
 
 interface BatchStatusPanelProps {
-  apiKey: string;
   onResultsReady?: (results: Record<string, string>, jobId: string) => void;
 }
 
-const BatchStatusPanel: React.FC<BatchStatusPanelProps> = ({ apiKey, onResultsReady }) => {
+const BatchStatusPanel: React.FC<BatchStatusPanelProps> = ({ onResultsReady }) => {
   const [batches, setBatches] = useState<BatchStatus[]>([]);
   const [loading, setLoading] = useState<string[]>([]);
   const [messageApi, contextHolder] = message.useMessage();
@@ -29,6 +29,9 @@ const BatchStatusPanel: React.FC<BatchStatusPanelProps> = ({ apiKey, onResultsRe
   const [merging, setMerging] = useState(false);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
   const [sessionId, setSessionId] = useState<string>('');
+
+  // 自動ポーリング機能（10分ごと）
+  const { manualPoll } = useBatchPolling(true, 10 * 60 * 1000);
 
   const loadBatches = async () => {
     try {
@@ -65,7 +68,7 @@ const BatchStatusPanel: React.FC<BatchStatusPanelProps> = ({ apiKey, onResultsRe
   useEffect(() => {
     const checkCompletedBatches = () => {
       batches.forEach(async (batch) => {
-        if (batch.status === 'completed' && apiKey) {
+        if (batch.status === 'completed') {
           // Show browser notification if permission is granted
           if (Notification.permission === 'granted') {
             new Notification('Batch Translation Completed', {
@@ -80,16 +83,14 @@ const BatchStatusPanel: React.FC<BatchStatusPanelProps> = ({ apiKey, onResultsRe
     if (batches.length > 0) {
       checkCompletedBatches();
     }
-  }, [batches, apiKey]);
+  }, [batches]);
 
   const refreshBatch = async (batch: BatchStatus) => {
-    if (!apiKey) {
-      messageApi.error('API key is required');
-      return;
-    }
-
     setLoading(prev => [...prev, batch.jobId]);
     try {
+      // 手動でポーリングを実行
+      await manualPoll();
+      
       // Use server-side API for better reliability (server reads key from env)
       const response = await fetch(`/api/batch/status?jobId=${batch.jobId}`);
       
@@ -127,37 +128,14 @@ const BatchStatusPanel: React.FC<BatchStatusPanelProps> = ({ apiKey, onResultsRe
       if (status.status === 'completed' && status.outputFileId) {
         messageApi.success(`Batch ${batch.jobId} completed!`);
         
-        // Auto-download results
-        const results = await downloadBatchResults(status.outputFileId, apiKey);
-        onResultsReady?.(results, batch.jobId);
-      } else if (status.status === 'failed') {
-        // Try to surface error details if available
-        try {
-          const errId = (status as any).errorFileId;
-          if (errId && apiKey) {
-            const resp = await fetch(`https://api.openai.com/v1/files/${errId}/content`, {
-              headers: { Authorization: `Bearer ${apiKey}` },
-            });
-            if (resp.ok) {
-              const text = await resp.text();
-              const first = (text.split('\n').find(l => l.trim()) || '').trim();
-              let reason = '';
-              try {
-                const j = JSON.parse(first);
-                reason = j?.error?.message || j?.response?.body?.error?.message || first.slice(0, 300);
-              } catch {
-                reason = first.slice(0, 300);
-              }
-              messageApi.error(`Batch ${batch.jobId} failed: ${reason}`);
-            } else {
-              messageApi.error(`Batch ${batch.jobId} failed (error file fetch ${resp.status})`);
-            }
-          } else {
-            messageApi.error(`Batch ${batch.jobId} failed`);
-          }
-        } catch {
-          messageApi.error(`Batch ${batch.jobId} failed`);
+        // Auto-download results using server-side API
+        const resultsResponse = await fetch(`/api/batch/results?jobId=${batch.jobId}`);
+        if (resultsResponse.ok) {
+          const results = await resultsResponse.json();
+          onResultsReady?.(results, batch.jobId);
         }
+      } else if (status.status === 'failed') {
+        messageApi.error(`Batch ${batch.jobId} failed`);
       }
     } catch (error: any) {
       messageApi.error(`Failed to refresh batch: ${error.message}`);
@@ -167,15 +145,10 @@ const BatchStatusPanel: React.FC<BatchStatusPanelProps> = ({ apiKey, onResultsRe
   };
 
   const downloadResults = async (batch: BatchStatus) => {
-    if (!apiKey) {
-      messageApi.error('API key is required');
-      return;
-    }
-
     try {
-      const status = await getBatchStatus(batch.jobId, apiKey);
-      if (status.status === 'completed' && status.output_file_id) {
-        const results = await downloadBatchResults(status.output_file_id, apiKey);
+      const response = await fetch(`/api/batch/results?jobId=${batch.jobId}`);
+      if (response.ok) {
+        const results = await response.json();
         onResultsReady?.(results, batch.jobId);
         messageApi.success('Results downloaded successfully');
       } else {
@@ -187,21 +160,31 @@ const BatchStatusPanel: React.FC<BatchStatusPanelProps> = ({ apiKey, onResultsRe
   };
 
   const exportAsText = async (batch: BatchStatus) => {
-    if (!apiKey) {
-      messageApi.error('API key is required');
-      return;
-    }
-
     try {
-      const status = await getBatchStatus(batch.jobId, apiKey);
-      if (status.status !== 'completed' || !status.output_file_id) {
+      const response = await fetch(`/api/batch/results?jobId=${batch.jobId}`);
+      if (!response.ok) {
         messageApi.warning('Batch is not completed yet');
         return;
       }
 
-      const results = await downloadBatchResults(status.output_file_id, apiKey);
-      // Merge by original order using saved chunkIds
-      const ordered = batch.chunkIds.map((id) => results[id] ?? '').join('\n');
+      const results = await response.json();
+      
+      // 文脈チャンクの場合は結果を分割して結合
+      let ordered: string;
+      if (batch.sourceMeta?.contextChunks && batch.sourceMeta?.contextWindow > 1) {
+        // 文脈チャンクの場合：各チャンクの結果を分割して結合
+        const allLines: string[] = [];
+        for (const id of batch.chunkIds) {
+          const chunkResult = results[id] ?? '';
+          const lines = chunkResult.split('\n');
+          allLines.push(...lines);
+        }
+        ordered = allLines.join('\n');
+      } else {
+        // 通常の行単位処理
+        ordered = batch.chunkIds.map((id) => results[id] ?? '').join('\n');
+      }
+      
       const fileName = `batch_${batch.jobId.slice(-8)}.txt`;
       await downloadFile(ordered, fileName);
       messageApi.success(`Exported ${fileName}`);
@@ -228,13 +211,13 @@ const BatchStatusPanel: React.FC<BatchStatusPanelProps> = ({ apiKey, onResultsRe
     if (!mergeBatch || !mergeFile) return;
     setMerging(true);
     try {
-      const status = await getBatchStatus(mergeBatch.jobId, apiKey);
-      if (status.status !== 'completed' || !status.output_file_id) {
+      const response = await fetch(`/api/batch/results?jobId=${mergeBatch.jobId}`);
+      if (!response.ok) {
         messageApi.warning('Batch is not completed yet');
         return;
       }
 
-      const results = await downloadBatchResults(status.output_file_id, apiKey);
+      const results = await response.json();
       const raw = (await readFileText(mergeFile)).replace(/\r\n/g, '\n');
       const lines = raw.split('\n');
       const fileType = detectSubtitleFormat(lines);
@@ -250,7 +233,22 @@ const BatchStatusPanel: React.FC<BatchStatusPanelProps> = ({ apiKey, onResultsRe
         messageApi.warning('Selected file content differs from the original used for this batch');
       }
 
-      const translatedOrdered = mergeBatch.chunkIds.map((id) => results[id] ?? '');
+      // 文脈チャンクの場合は結果を分割
+      let translatedOrdered: string[];
+      if (mergeBatch.sourceMeta?.contextChunks && mergeBatch.sourceMeta?.contextWindow > 1) {
+        // 文脈チャンクの場合：各チャンクの結果を分割
+        const allLines: string[] = [];
+        for (const id of mergeBatch.chunkIds) {
+          const chunkResult = results[id] ?? '';
+          const lines = chunkResult.split('\n');
+          allLines.push(...lines);
+        }
+        translatedOrdered = allLines;
+      } else {
+        // 通常の行単位処理
+        translatedOrdered = mergeBatch.chunkIds.map((id) => results[id] ?? '');
+      }
+      
       if (translatedOrdered.length !== contentIndices.length) {
         messageApi.warning(`Line count mismatch: src ${contentIndices.length} vs results ${translatedOrdered.length}. Will merge by index.`);
       }
@@ -435,6 +433,11 @@ const BatchStatusPanel: React.FC<BatchStatusPanelProps> = ({ apiKey, onResultsRe
                     <Text type="secondary">
                       {batch.chunkIds.length} chunks • Created: {new Date(batch.createdAt).toLocaleString()}
                     </Text>
+                    {batch.usage && (
+                      <Text type="secondary" style={{ fontSize: '12px' }}>
+                        Tokens: {batch.usage.input_tokens || 0} in • {batch.usage.output_tokens || 0} out • {batch.usage.total_tokens || 0} total
+                      </Text>
+                    )}
                     <Progress
                       percent={getProgress(batch)}
                       size="small"

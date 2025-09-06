@@ -44,6 +44,11 @@ export interface BatchStatus {
     completed: number;
     failed: number;
   };
+  usage?: {
+    input_tokens: number;
+    output_tokens: number;
+    total_tokens: number;
+  };
 }
 
 export interface BatchSourceMeta {
@@ -198,7 +203,8 @@ export const getBatchStatus = async (
  */
 export const downloadBatchResults = async (
   outputFileId: string,
-  apiKey: string
+  apiKey: string,
+  originalTexts?: Record<string, string>
 ): Promise<Record<string, string>> => {
   const response = await fetch(`https://api.openai.com/v1/files/${outputFileId}/content`, {
     headers: {
@@ -221,7 +227,28 @@ export const downloadBatchResults = async (
         const result = JSON.parse(line);
         const body = result.response?.body || {};
         const text = body?.choices?.[0]?.message?.content?.trim?.() || body?.output_text?.trim?.() || '';
-        if (result.custom_id && text) results[result.custom_id] = text;
+        
+        if (result.custom_id && text) {
+          // 翻訳品質の検証（原文が提供されている場合のみ）
+          if (originalTexts && originalTexts[result.custom_id]) {
+            const { validateTranslation } = require('@/app/utils/translationValidator');
+            const validation = validateTranslation(
+              originalTexts[result.custom_id], 
+              text, 
+              'ja' // デフォルト言語、実際は設定から取得すべき
+            );
+            
+            if (!validation.isValid) {
+              console.warn(`Batch translation quality issue for ${result.custom_id}: ${validation.reason}`);
+              console.log(`Using original text for ${result.custom_id}`);
+              results[result.custom_id] = originalTexts[result.custom_id];
+            } else {
+              results[result.custom_id] = text;
+            }
+          } else {
+            results[result.custom_id] = text;
+          }
+        }
         // if (body?.usage) usages.push({ id: result.custom_id, usage: body.usage });
       } catch (e) {
         console.warn('Failed to parse result line:', line);
@@ -242,17 +269,14 @@ export const BATCH_STORAGE_KEY = 'openai_batch_jobs';
  */
 export const saveBatchStatus = async (status: BatchStatus, sessionId?: string) => {
   try {
-    // Ensure session cookie exists
-    try {
-      await fetch('/api/session', { credentials: 'include' });
-    } catch {}
-
-    const response = await fetch('/api/batch/jobs', {
+    // サーバー側では絶対URLを使用
+    const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3010';
+    
+    const response = await fetch(`${baseUrl}/api/batch/jobs`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      credentials: 'include',
       body: JSON.stringify({
         jobId: status.jobId,
         status: status.status,
