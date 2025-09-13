@@ -107,7 +107,7 @@ const SubtitleTranslator = () => {
   const fetchServerFiles = useCallback(async (offset: number = 0, append: boolean = false) => {
     if (translationMethod !== "server" || !token) return;
     try {
-      const resp = await fetch(`${baseUrl}/api/files?limit=${PAGE_SIZE}&offset=${Math.max(0, offset)}`, { headers: { Authorization: `Bearer ${token}` } });
+      const resp = await fetch(`${baseUrl}/api/files?limit=${PAGE_SIZE}&offset=${Math.max(0, offset)}&includeLangs=1`, { headers: { Authorization: `Bearer ${token}` } });
       if (!resp.ok) throw new Error(`Failed to load files (${resp.status})`);
       const items: any[] = (await resp.json()) || [];
       setServerFiles((prev) => (append ? [...prev, ...items] : items));
@@ -819,12 +819,31 @@ const SubtitleTranslator = () => {
               placeholder={"Select one or more files saved on server"}
               value={selectedServerFileIds}
               onChange={(v) => setSelectedServerFileIds(v)}
-              options={serverFiles.map((f) => ({
-                value: f.id,
-                label: `${f.originalName || f.title} · ${new Date(f.createdAt).toLocaleString()} · ${f._count?.segments || 0} segs`,
-              }))}
+              options={serverFiles.map((f) => {
+                const langs: string[] = Array.isArray(f.langs) ? f.langs : [];
+                const color = (l: string) => (l === 'ja' ? 'magenta' : l === 'zh' ? 'gold' : 'geekblue');
+                const labelNode = (
+                  <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {(f.originalName || f.title) + ` · ${new Date(f.createdAt).toLocaleString()} · ${(f._count?.segments || 0)} segs`}
+                    </span>
+                    {langs.map((l) => (
+                      <Tag key={l} color={color(l)} size="small">{l}</Tag>
+                    ))}
+                  </span>
+                );
+                return {
+                  value: f.id,
+                  label: labelNode,
+                  labelText: `${f.originalName || f.title} ${new Date(f.createdAt).toLocaleString()} ${(f._count?.segments || 0)} segs ${langs.join(' ')}`,
+                } as any;
+              })}
               showSearch
               optionFilterProp="label"
+              filterOption={(input, option) => {
+                const t = (option as any)?.labelText || '';
+                return String(t).toLowerCase().includes(String(input).toLowerCase());
+              }}
             />
           </Space>
         </Card>
@@ -945,9 +964,27 @@ const SubtitleTranslator = () => {
               placeholder={"Select a file to view"}
               value={viewerFileId || undefined}
               onChange={(v) => setViewerFileId(v)}
-              options={serverFiles.map((f) => ({ value: f.id, label: `${f.originalName || f.title} · ${(f._count?.segments || 0)} segs` }))}
+              options={serverFiles.map((f) => {
+                const langs: string[] = Array.isArray(f.langs) ? f.langs : [];
+                const color = (l: string) => (l === 'ja' ? 'magenta' : l === 'zh' ? 'gold' : 'geekblue');
+                const labelNode = (
+                  <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {(f.originalName || f.title) + ` · ${(f._count?.segments || 0)} segs`}
+                    </span>
+                    {langs.map((l) => (
+                      <Tag key={l} color={color(l)} size="small">{l}</Tag>
+                    ))}
+                  </span>
+                );
+                return { value: f.id, label: labelNode, labelText: `${f.originalName || f.title} ${(f._count?.segments || 0)} segs ${langs.join(' ')}` } as any;
+              })}
               showSearch
               optionFilterProp="label"
+              filterOption={(input, option) => {
+                const t = (option as any)?.labelText || '';
+                return String(t).toLowerCase().includes(String(input).toLowerCase());
+              }}
             />
             <Select
               value={viewerLang}
