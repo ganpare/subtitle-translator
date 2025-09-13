@@ -83,6 +83,8 @@ const SubtitleTranslator = () => {
   const [contextAwareTranslation, setContextAwareTranslation] = useState(true); // 上下文感知翻译开关
   const { token, baseUrl } = useAuth();
   const [serverFiles, setServerFiles] = useState<any[]>([]);
+  const [serverFilesOffset, setServerFilesOffset] = useState<number>(0);
+  const [serverFilesHasMore, setServerFilesHasMore] = useState<boolean>(true);
   const [selectedServerFileIds, setSelectedServerFileIds] = useState<string[]>([]);
   const [serverModels, setServerModels] = useState<{ id: string; label: string }[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
@@ -101,13 +103,16 @@ const SubtitleTranslator = () => {
   }, [sourceText, setExtractedText, setTranslatedText]);
 
   // Fetch server files for current user when in server mode
-  const fetchServerFiles = useCallback(async () => {
+  const PAGE_SIZE = 100;
+  const fetchServerFiles = useCallback(async (offset: number = 0, append: boolean = false) => {
     if (translationMethod !== "server" || !token) return;
     try {
-      const resp = await fetch(`${baseUrl}/api/files`, { headers: { Authorization: `Bearer ${token}` } });
+      const resp = await fetch(`${baseUrl}/api/files?limit=${PAGE_SIZE}&offset=${Math.max(0, offset)}`, { headers: { Authorization: `Bearer ${token}` } });
       if (!resp.ok) throw new Error(`Failed to load files (${resp.status})`);
-      const items = await resp.json();
-      setServerFiles(items || []);
+      const items: any[] = (await resp.json()) || [];
+      setServerFiles((prev) => (append ? [...prev, ...items] : items));
+      setServerFilesOffset(offset + items.length);
+      setServerFilesHasMore(items.length === PAGE_SIZE);
     } catch (e) {
       console.error(e);
       messageApi.error((e as Error).message);
@@ -115,7 +120,7 @@ const SubtitleTranslator = () => {
   }, [translationMethod, token, baseUrl, messageApi]);
 
   useEffect(() => {
-    if (isClient) fetchServerFiles();
+    if (isClient) fetchServerFiles(0, false);
   }, [fetchServerFiles, isClient]);
 
   const fetchJobs = useCallback(async () => {
@@ -800,7 +805,12 @@ const SubtitleTranslator = () => {
         {uploadMode === "single" && sourceText && <Button onClick={handleExtractText}>{t("extractText")}</Button>}
       </Flex>
       {isClient && translationMethod === "server" && (
-        <Card className="mt-3" title={"Server Files"} extra={<Button onClick={fetchServerFiles}>Refresh</Button>}>
+        <Card className="mt-3" title={"Server Files"} extra={
+          <Space>
+            <Button onClick={() => fetchServerFiles(0, false)}>Refresh</Button>
+            <Button onClick={() => fetchServerFiles(serverFilesOffset, true)} disabled={!serverFilesHasMore}>Load More</Button>
+          </Space>
+        }>
           <Space wrap>
             <Select
               mode="multiple"
