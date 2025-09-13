@@ -806,9 +806,23 @@ const SubtitleTranslator = () => {
       </Flex>
       {isClient && translationMethod === "server" && (
         <Card className="mt-3" title={"Server Files"} extra={
-          <Space>
+          <Space wrap>
             <Button onClick={() => fetchServerFiles(0, false)}>Refresh</Button>
             <Button onClick={() => fetchServerFiles(serverFilesOffset, true)} disabled={!serverFilesHasMore}>Load More</Button>
+            <Button
+              onClick={() => {
+                try {
+                  const all = Array.isArray(serverFiles) ? serverFiles.map((f: any) => String(f.id)) : [];
+                  setSelectedServerFileIds(all);
+                } catch {}
+              }}>
+              Select All
+            </Button>
+            <Button
+              onClick={() => setSelectedServerFileIds([])}
+            >
+              Clear All
+            </Button>
           </Space>
         }>
           <Space wrap>
