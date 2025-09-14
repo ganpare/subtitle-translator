@@ -41,6 +41,7 @@ const useTranslateData = () => {
   // Server-specific controls
   const [serverJobMethod, setServerJobMethod] = useState<'single' | 'batch'>('single');
   const [serverUseContext, setServerUseContext] = useState<boolean>(true);
+  const [serverPromptTemplateId, setServerPromptTemplateId] = useState<string>('subtitle_professional');
 
   // Load from localStorage (force default API to 'server' regardless of saved value)
   useEffect(() => {
@@ -417,6 +418,7 @@ const useTranslateData = () => {
         if (temp !== undefined) opt.temperature = temp;
         if (sysPrompt) opt.sysPrompt = sysPrompt;
         if (userPrompt) opt.userPrompt = userPrompt;
+        if (serverPromptTemplateId) opt.promptTemplateId = serverPromptTemplateId;
         const resp = await fetch(`${baseUrl}/api/translate/jobs`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -943,6 +945,8 @@ ${contextWithMarkers}`
     setServerJobMethod,
     serverUseContext,
     setServerUseContext,
+    serverPromptTemplateId,
+    setServerPromptTemplateId,
   };
 };
 
