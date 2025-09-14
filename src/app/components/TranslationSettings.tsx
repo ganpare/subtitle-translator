@@ -44,7 +44,16 @@ const TranslationSettings = () => {
     setPromptTemplatesLoading(true);
     try {
       console.log("Fetching prompt templates from:", `${baseUrl}/api/prompts`);
-      const resp = await fetch(`${baseUrl}/api/prompts`);
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json'
+      };
+      
+      // 認証トークンがある場合は追加
+      if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`;
+      }
+      
+      const resp = await fetch(`${baseUrl}/api/prompts`, { headers });
       const data = await resp.json();
       console.log("Prompt templates response:", data);
       setPromptTemplates(data?.templates || []);
@@ -53,7 +62,7 @@ const TranslationSettings = () => {
     } finally {
       setPromptTemplatesLoading(false);
     }
-  }, [translationMethod, baseUrl, isClient]);
+  }, [translationMethod, baseUrl, isClient, authToken]);
 
   // プロンプトテンプレートが選択されたときに詳細情報を更新
   const handlePromptTemplateChange = (templateId: string) => {
@@ -91,10 +100,13 @@ const TranslationSettings = () => {
         await fetchPromptTemplates();
         messageApi.success('プロンプトテンプレートを作成しました');
       } else {
-        messageApi.error('プロンプトテンプレートの作成に失敗しました');
+        const errorData = await resp.json().catch(() => ({}));
+        console.error('Create template error:', errorData);
+        messageApi.error(`プロンプトテンプレートの作成に失敗しました: ${errorData.error || resp.statusText}`);
       }
     } catch (error) {
-      messageApi.error('プロンプトテンプレートの作成に失敗しました');
+      console.error('Create template error:', error);
+      messageApi.error(`プロンプトテンプレートの作成に失敗しました: ${error.message || error}`);
     }
   };
 
@@ -113,10 +125,13 @@ const TranslationSettings = () => {
         await fetchPromptTemplates();
         messageApi.success('プロンプトテンプレートを更新しました');
       } else {
-        messageApi.error('プロンプトテンプレートの更新に失敗しました');
+        const errorData = await resp.json().catch(() => ({}));
+        console.error('Update template error:', errorData);
+        messageApi.error(`プロンプトテンプレートの更新に失敗しました: ${errorData.error || resp.statusText}`);
       }
     } catch (error) {
-      messageApi.error('プロンプトテンプレートの更新に失敗しました');
+      console.error('Update template error:', error);
+      messageApi.error(`プロンプトテンプレートの更新に失敗しました: ${error.message || error}`);
     }
   };
 
@@ -131,10 +146,13 @@ const TranslationSettings = () => {
         await fetchPromptTemplates();
         messageApi.success('プロンプトテンプレートを削除しました');
       } else {
-        messageApi.error('プロンプトテンプレートの削除に失敗しました');
+        const errorData = await resp.json().catch(() => ({}));
+        console.error('Delete template error:', errorData);
+        messageApi.error(`プロンプトテンプレートの削除に失敗しました: ${errorData.error || resp.statusText}`);
       }
     } catch (error) {
-      messageApi.error('プロンプトテンプレートの削除に失敗しました');
+      console.error('Delete template error:', error);
+      messageApi.error(`プロンプトテンプレートの削除に失敗しました: ${error.message || error}`);
     }
   };
 
