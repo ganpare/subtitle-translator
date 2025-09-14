@@ -47,6 +47,7 @@
     "exportAllFile": "すべての翻訳ファイルをエクスポート",
     "exportedFile": "ファイルがエクスポートされました",
     "extractedText": "抽出されたプレーンテキスト",
+    "refresh": "更新",
     "translating": "翻訳中",
     "multiTranslating": "翻訳中： 総翻訳先言語数：",
     "model": "モデル",

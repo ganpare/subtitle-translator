@@ -47,6 +47,7 @@
     "exportAllFile": "Export All Translated Files",
     "exportedFile": "File Exported",
     "extractedText": "Extracted Plain Text",
+    "refresh": "Refresh",
     "translating": "Translating",
     "multiTranslating": "Translating, total target languages:",
     "model": "Model",
