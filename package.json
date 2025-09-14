@@ -3,7 +3,7 @@
   "version": "1.2.3",
   "license": "MIT",
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -H 0.0.0.0",
     "build": "next build",
     "build:lang": "node scripts/buildWithLang.js",
     "postbuild": "next-sitemap",
