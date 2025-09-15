@@ -94,6 +94,12 @@ const SubtitleTranslator = () => {
   const [viewerLang, setViewerLang] = useState<"original" | "english" | "japanese" | "chinese">("original");
   const [viewerSegs, setViewerSegs] = useState<any[]>([]);
   const [viewerLoading, setViewerLoading] = useState(false);
+  // Metadata editor states
+  const [metaFileId, setMetaFileId] = useState<string | undefined>(undefined);
+  const [metaTitle, setMetaTitle] = useState<string>("");
+  const [metaSeries, setMetaSeries] = useState<string>("");
+  const [metaEpisode, setMetaEpisode] = useState<string>("");
+  const [metaLoading, setMetaLoading] = useState<boolean>(false);
   // Track files auto-uploaded to server to avoid duplicates
   const autoUploadedKeysRef = useRef<Set<string>>(new Set());
 
@@ -122,6 +128,63 @@ const SubtitleTranslator = () => {
   useEffect(() => {
     if (isClient) fetchServerFiles(0, false);
   }, [fetchServerFiles, isClient]);
+
+  // Load metadata when metaFileId changes
+  useEffect(() => {
+    if (!isClient || translationMethod !== "server" || !token || !metaFileId) return;
+    const f = serverFiles.find((x) => String(x.id) === String(metaFileId));
+    if (f) {
+      setMetaTitle(f.title || "");
+      setMetaSeries(f.series || "");
+      setMetaEpisode(f.episode || "");
+      return;
+    }
+    // fallback to fetch details
+    (async () => {
+      try {
+        const resp = await fetch(`${baseUrl}/api/files/${metaFileId}`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        setMetaTitle(data?.title || "");
+        setMetaSeries(data?.series || "");
+        setMetaEpisode(data?.episode || "");
+      } catch {}
+    })();
+  }, [metaFileId, isClient, translationMethod, token, baseUrl, serverFiles]);
+
+  const saveMetadata = useCallback(async () => {
+    if (!metaFileId) {
+      messageApi.error("Please select a file");
+      return;
+    }
+    if (!token) {
+      messageApi.error("Please sign in to the server first");
+      return;
+    }
+    setMetaLoading(true);
+    try {
+      const resp = await fetch(`${baseUrl}/api/files/${metaFileId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ title: metaTitle, series: metaSeries, episode: metaEpisode }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err?.error || `Save failed (${resp.status})`);
+      }
+      messageApi.success('Metadata saved');
+      // refresh server files list so options reflect latest values
+      await fetchServerFiles(0, false);
+    } catch (e) {
+      console.error(e);
+      messageApi.error((e as Error).message);
+    } finally {
+      setMetaLoading(false);
+    }
+  }, [metaFileId, metaTitle, metaSeries, metaEpisode, token, baseUrl, messageApi, fetchServerFiles]);
 
   const fetchJobs = useCallback(async () => {
     if (translationMethod !== "server" || !token) return;
@@ -804,6 +867,24 @@ const SubtitleTranslator = () => {
         )}
         {uploadMode === "single" && sourceText && <Button onClick={handleExtractText}>{t("extractText")}</Button>}
       </Flex>
+      {isClient && translationMethod === "server" && (
+        <Card className="mt-3" title={"File Metadata"} extra={<Button loading={metaLoading} type="primary" onClick={saveMetadata}>Save</Button>}>
+          <Space wrap>
+            <Select
+              style={{ minWidth: 420 }}
+              placeholder={"Select a file to edit metadata"}
+              value={metaFileId}
+              onChange={(v) => setMetaFileId(v)}
+              options={serverFiles.map((f) => ({ value: f.id, label: f.originalName || f.title || f.id }))}
+              showSearch
+              optionFilterProp="label"
+            />
+            <Input placeholder="Title" value={metaTitle} onChange={(e) => setMetaTitle(e.target.value)} style={{ minWidth: 220 }} />
+            <Input placeholder="Series" value={metaSeries} onChange={(e) => setMetaSeries(e.target.value)} style={{ minWidth: 180 }} />
+            <Input placeholder="Episode" value={metaEpisode} onChange={(e) => setMetaEpisode(e.target.value)} style={{ minWidth: 160 }} />
+          </Space>
+        </Card>
+      )}
       {isClient && translationMethod === "server" && (
         <Card className="mt-3" title={"Server Files"} extra={
           <Space wrap>
