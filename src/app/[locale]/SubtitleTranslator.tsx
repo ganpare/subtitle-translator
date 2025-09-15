@@ -79,7 +79,7 @@ const SubtitleTranslator = () => {
   const resultStats = useMemo(() => getTextStats(translatedText), [translatedText]);
 
   const [bilingualSubtitle, setBilingualSubtitle] = useState(false);
-  const [bilingualPosition, setBilingualPosition] = useState("below"); // 'above' or 'below'
+  const [bilingualPosition, setBilingualPosition] = useState<'above' | 'below'>("below"); // 'above' or 'below'
   const [contextAwareTranslation, setContextAwareTranslation] = useState(true); // 上下文感知翻译开关
   const { token, baseUrl } = useAuth();
   const [serverFiles, setServerFiles] = useState<any[]>([]);
@@ -94,6 +94,24 @@ const SubtitleTranslator = () => {
   const [viewerLang, setViewerLang] = useState<"original" | "english" | "japanese" | "chinese">("original");
   const [viewerSegs, setViewerSegs] = useState<any[]>([]);
   const [viewerLoading, setViewerLoading] = useState(false);
+  // Export controls for server files
+  const [exportFormat, setExportFormat] = useState<'srt' | 'vtt' | 'ass'>('srt');
+  const [exportLang, setExportLang] = useState<string>('en');
+  const [exportBilingual, setExportBilingual] = useState<boolean>(false);
+  // exportLangOptions は選択済みサーバファイルに実際存在する言語のみ
+  const exportLangOptions = useMemo(() => {
+    const selected = new Set(selectedServerFileIds);
+    const langs = new Set<string>();
+    for (const f of serverFiles) {
+      if (!selected.size || selected.has(String(f.id))) {
+        if (Array.isArray(f.langs)) {
+          for (const l of f.langs) langs.add(String(l));
+        }
+      }
+    }
+    // 既存 targetOptions から、value が langs に含まれるものだけを返す
+    return (targetOptions || []).filter((opt: any) => langs.has(String(opt.value)));
+  }, [serverFiles, selectedServerFileIds, targetOptions]);
   // Metadata editor states
   const [metaFileId, setMetaFileId] = useState<string | undefined>(undefined);
   const [metaTitle, setMetaTitle] = useState<string>("");
@@ -904,6 +922,77 @@ const SubtitleTranslator = () => {
             >
               Clear All
             </Button>
+            <Space size="small" wrap>
+              <Select
+                value={exportFormat}
+                onChange={(v) => setExportFormat(v)}
+                options={[{ value: 'srt', label: 'SRT' }, { value: 'vtt', label: 'VTT' }, { value: 'ass', label: 'ASS' }]}
+                style={{ width: 90 }}
+              />
+              <Select
+                value={exportLang}
+                onChange={(v) => setExportLang(v)}
+                options={exportLangOptions}
+                showSearch
+                placeholder={t("selectTargetLanguage")}
+                optionFilterProp="children"
+                filterOption={(input, option) => filterLanguageOption({ input, option })}
+                style={{ minWidth: 140 }}
+              />
+              <Checkbox checked={exportBilingual} onChange={(e) => setExportBilingual(e.target.checked)}>Bilingual</Checkbox>
+              <Radio.Group value={bilingualPosition} onChange={(e) => setBilingualPosition(e.target.value)} optionType="button" size="small">
+                <Radio.Button value="above">Above</Radio.Button>
+                <Radio.Button value="below">Below</Radio.Button>
+              </Radio.Group>
+              <Button
+                type="primary"
+                onClick={async () => {
+                  if (!token) {
+                    messageApi.error("Please sign in to the server first");
+                    return;
+                  }
+                  if (!selectedServerFileIds?.length) {
+                    messageApi.error("Please select at least one server file");
+                    return;
+                  }
+                  // exportLang が選択可能集合に含まれているかを最終チェック
+                  const allowed = new Set(exportLangOptions.map((o: any) => String(o.value)));
+                  if (!allowed.has(String(exportLang))) {
+                    messageApi.error("Selected language is not available for the chosen file(s)");
+                    return;
+                  }
+                  try {
+                    for (const id of selectedServerFileIds) {
+                      const url = new URL(`${baseUrl}/api/files/${id}/export`);
+                      url.searchParams.set('format', exportFormat);
+                      url.searchParams.set('lang', exportLang);
+                      url.searchParams.set('bilingual', exportBilingual ? '1' : '0');
+                      url.searchParams.set('position', bilingualPosition);
+                      const resp = await fetch(url.toString(), { headers: { Authorization: `Bearer ${token}` } });
+                      if (!resp.ok) throw new Error(`Export failed (${resp.status})`);
+                      const blob = await resp.blob();
+                      const cd = resp.headers.get('Content-Disposition') || '';
+                      const m = cd.match(/filename\*=UTF-8''([^;\n]+)/);
+                      const fallback = cd.match(/filename="([^"]+)"/);
+                      const name = (m ? decodeURIComponent(m[1]) : (fallback ? fallback[1] : `subtitle.${exportFormat}`));
+                      const a = document.createElement('a');
+                      a.href = URL.createObjectURL(blob);
+                      a.download = name;
+                      document.body.appendChild(a);
+                      a.click();
+                      a.remove();
+                      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+                    }
+                    messageApi.success(`Exported ${selectedServerFileIds.length} file(s)`);
+                  } catch (e) {
+                    console.error(e);
+                    messageApi.error((e as Error).message);
+                  }
+                }}
+              >
+                Export Subtitles
+              </Button>
+            </Space>
           </Space>
         }>
           <Space wrap>
@@ -923,7 +1012,7 @@ const SubtitleTranslator = () => {
                       {(f.originalName || f.title) + ` · ${new Date(f.createdAt).toLocaleString()} · ${(f._count?.segments || 0)} segs`}
                     </span>
                     {langs.map((l) => (
-                      <Tag key={l} color={color(l)} size="small">{l}</Tag>
+                      <Tag key={l} color={color(l)}>{l}</Tag>
                     ))}
                   </span>
                 );
@@ -1068,7 +1157,7 @@ const SubtitleTranslator = () => {
                       {(f.originalName || f.title) + ` · ${(f._count?.segments || 0)} segs`}
                     </span>
                     {langs.map((l) => (
-                      <Tag key={l} color={color(l)} size="small">{l}</Tag>
+                      <Tag key={l} color={color(l)}>{l}</Tag>
                     ))}
                   </span>
                 );
