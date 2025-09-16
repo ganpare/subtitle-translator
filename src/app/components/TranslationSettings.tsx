@@ -64,17 +64,55 @@ const TranslationSettings = () => {
     }
   }, [translationMethod, baseUrl, isClient, authToken]);
 
+  // ユーザー設定の選択テンプレを取得
+  const fetchSelectedTemplateFromSettings = React.useCallback(async () => {
+    if (!isClient || translationMethod !== 'server' || !authToken) return;
+    try {
+      const resp = await fetch(`${baseUrl}/api/settings`, { headers: { Authorization: `Bearer ${authToken}` } });
+      if (!resp.ok) return;
+      const settings = await resp.json();
+      if (settings?.selectedTemplateId) {
+        setServerPromptTemplateId(settings.selectedTemplateId);
+      }
+    } catch (e) {
+      console.warn('Failed to load user settings', e);
+    }
+  }, [isClient, translationMethod, authToken, baseUrl, setServerPromptTemplateId]);
+
   // プロンプトテンプレートが選択されたときに詳細情報を更新
-  const handlePromptTemplateChange = (templateId: string) => {
+  const handlePromptTemplateChange = async (templateId: string) => {
     setServerPromptTemplateId(templateId);
     const selectedTemplate = promptTemplates.find(template => template.id === templateId);
     setSelectedPromptTemplate(selectedTemplate || null);
+    // サーバ設定に保存
+    if (authToken) {
+      try {
+        const resp = await fetch(`${baseUrl}/api/settings`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${authToken}`
+          },
+          body: JSON.stringify({ selectedTemplateId: templateId })
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          messageApi.error(`選択テンプレートの保存に失敗しました: ${err.error || resp.statusText}`);
+        } else {
+          messageApi.success('テンプレート選択を保存しました');
+        }
+      } catch (e: any) {
+        messageApi.error(`選択テンプレートの保存に失敗しました: ${e?.message || e}`);
+      }
+    }
   };
 
   React.useEffect(() => {
     fetchServerModels();
+    // 設定→テンプレ一覧の順で呼ぶと初期選択が反映されやすい
+    fetchSelectedTemplateFromSettings();
     fetchPromptTemplates();
-  }, [fetchServerModels, fetchPromptTemplates]);
+  }, [fetchServerModels, fetchPromptTemplates, fetchSelectedTemplateFromSettings]);
 
   // プロンプトテンプレートが読み込まれたときに、現在選択されているテンプレートの詳細を設定
   React.useEffect(() => {
@@ -144,6 +182,16 @@ const TranslationSettings = () => {
       });
       if (resp.ok) {
         await fetchPromptTemplates();
+        // 現在選択していたテンプレが削除された場合のフェイルセーフ
+        if (serverPromptTemplateId === id) {
+          const fallback = (promptTemplates.find(t => t.id === 'subtitle_professional') || promptTemplates[0]);
+          if (fallback) {
+            await handlePromptTemplateChange(fallback.id);
+          } else {
+            // テンプレが何もない場合はクリア
+            setServerPromptTemplateId('');
+          }
+        }
         messageApi.success('プロンプトテンプレートを削除しました');
       } else {
         const errorData = await resp.json().catch(() => ({}));

@@ -122,6 +122,23 @@ const useTranslateData = () => {
     return "http://localhost:4000";
   };
 
+  // 初期ロード時にサーバ設定から選択テンプレを同期
+  useEffect(() => {
+    (async () => {
+      try {
+        const token = getAuthToken();
+        if (!token) return;
+        const baseUrl = getServerUrl();
+        const resp = await fetch(`${baseUrl}/api/settings`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!resp.ok) return;
+        const settings = await resp.json();
+        if (settings?.selectedTemplateId) {
+          setServerPromptTemplateId(settings.selectedTemplateId);
+        }
+      } catch {}
+    })();
+  }, []);
+
   const { readFile } = useFileUpload();
   const importSettings = () => {
     return new Promise((resolve, reject) => {
@@ -418,7 +435,8 @@ const useTranslateData = () => {
         if (temp !== undefined) opt.temperature = temp;
         if (sysPrompt) opt.sysPrompt = sysPrompt;
         if (userPrompt) opt.userPrompt = userPrompt;
-        if (serverPromptTemplateId) opt.promptTemplateId = serverPromptTemplateId;
+  // テンプレIDは明示指定。未指定でもサーバ側でselectedTemplateIdが自動適用されるためフェイルセーフ
+  if (serverPromptTemplateId) opt.promptTemplateId = serverPromptTemplateId;
         const resp = await fetch(`${baseUrl}/api/translate/jobs`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
