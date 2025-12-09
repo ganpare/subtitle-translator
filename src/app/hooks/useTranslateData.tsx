@@ -5,7 +5,7 @@ import { message } from "antd";
 import { loadFromLocalStorage, saveToLocalStorage } from "@/app/utils/localStorageUtils";
 import useFileUpload from "@/app/hooks/useFileUpload";
 import { downloadFile } from "@/app/utils";
-import { generateCacheSuffix, checkLanguageSupport, splitTextIntoChunks, testTranslation, useTranslation, defaultConfigs, isConfigStructureValid, LLM_MODELS } from "@/app/components/translateAPI";
+import { generateCacheSuffix, splitTextIntoChunks, useTranslation, defaultConfigs, isConfigStructureValid, LLM_MODELS } from "@/app/components/translateAPI";
 import pLimit from "p-limit";
 import pRetry from "p-retry";
 import { useTranslations } from "next-intl";
@@ -20,7 +20,9 @@ const useTranslateData = () => {
   const t = useTranslations("common");
   const { translate } = useTranslation();
 
-  const [translationMethod, setTranslationMethod] = useState<string>(DEFAULT_API);
+  const [translationMethod, setTranslationMethodState] = useState<string>(DEFAULT_API);
+  // サーバー固定: 呼び出されても常に server に戻す
+  const setTranslationMethod = (_: string) => setTranslationMethodState(DEFAULT_API);
   // ["google", "gtxFreeAPI", "webgoogletranslate", "deepseek"] 没有 chuckSize 则逐行翻译
   const [translationConfigs, setTranslationConfigs] = useState(defaultConfigs);
   const [sysPrompt, setSysPrompt] = useState<string>(DEFAULT_SYS_PROMPT);
@@ -53,7 +55,7 @@ const useTranslateData = () => {
 
       setSysPrompt(loadFromLocalStorage("sysPrompt") || DEFAULT_SYS_PROMPT);
       setUserPrompt(loadFromLocalStorage("userPrompt") || DEFAULT_USER_PROMPT);
-      // Always start with server mode on first load, ignoring any saved method
+      // サーバー固定
       setTranslationMethod(DEFAULT_API);
       setSourceLanguage(loadFromLocalStorage("sourceLanguage") || "auto");
       setTargetLanguage(loadFromLocalStorage("targetLanguage") || "zh");
@@ -76,7 +78,6 @@ const useTranslateData = () => {
       saveToLocalStorage("translationConfigs", translationConfigs);
       saveToLocalStorage("sysPrompt", sysPrompt);
       saveToLocalStorage("userPrompt", userPrompt);
-      saveToLocalStorage("translationMethod", translationMethod);
       saveToLocalStorage("sourceLanguage", sourceLanguage);
       saveToLocalStorage("targetLanguage", targetLanguage);
       saveToLocalStorage("target_langs", target_langs);
@@ -85,7 +86,7 @@ const useTranslateData = () => {
       saveToLocalStorage("serverJobMethod", serverJobMethod);
       saveToLocalStorage("serverUseContext", serverUseContext);
     }
-  }, [translationConfigs, sysPrompt, userPrompt, translationMethod, sourceLanguage, targetLanguage, target_langs, multiLanguageMode, serverJobMethod, serverUseContext, isClient]);
+  }, [translationConfigs, sysPrompt, userPrompt, sourceLanguage, targetLanguage, target_langs, multiLanguageMode, serverJobMethod, serverUseContext, isClient]);
 
   const exportSettings = async () => {
     try {
@@ -93,7 +94,6 @@ const useTranslateData = () => {
         translationConfigs: loadFromLocalStorage("translationConfigs"),
         sysPrompt: loadFromLocalStorage("sysPrompt"),
         userPrompt: loadFromLocalStorage("userPrompt"),
-        translationMethod: loadFromLocalStorage("translationMethod"),
         sourceLanguage: loadFromLocalStorage("sourceLanguage"),
         targetLanguage: loadFromLocalStorage("targetLanguage"),
         target_langs: loadFromLocalStorage("target_langs"),
@@ -164,11 +164,6 @@ const useTranslateData = () => {
               if (settings.userPrompt !== undefined) {
                 saveToLocalStorage("userPrompt", settings.userPrompt);
                 setUserPrompt(settings.userPrompt);
-              }
-
-              if (settings.translationMethod !== undefined) {
-                saveToLocalStorage("translationMethod", settings.translationMethod);
-                setTranslationMethod(settings.translationMethod);
               }
 
               if (settings.sourceLanguage !== undefined) {
@@ -301,77 +296,12 @@ const useTranslateData = () => {
   const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
   const validateTranslate = async () => {
-    const config = getCurrentConfig();
-    if (translationMethod === "server") {
-      // Require login
-      const token = getAuthToken();
-      if (!token) {
-        message.error("Please sign in to the server first");
-        return false;
-      }
-      return true;
-    }
-    if (config && "apiKey" in config && !config.apiKey && translationMethod !== "llm") {
-      message.error(t("enterApiKey"));
+    // server 固定: トークン必須のみ確認
+    const token = getAuthToken();
+    if (!token) {
+      message.error("Please sign in to the server first");
       return false;
     }
-
-    if (translationMethod === "llm" && !config.url) {
-      message.error(t("enterLlmUrl"));
-      return false;
-    }
-
-    if (!multiLanguageMode) {
-      if (!checkLanguageSupport(translationMethod, sourceLanguage, targetLanguage)) {
-        setTranslationMethod(DEFAULT_API);
-        return false;
-      }
-    } else {
-      for (let lang of target_langs) {
-        if (!checkLanguageSupport(translationMethod, sourceLanguage, lang)) {
-          setTranslationMethod(DEFAULT_API);
-          return false;
-        }
-      }
-    }
-
-    if (["deepl", "deeplx", "llm", "gtxFreeAPI"].includes(translationMethod)) {
-      setTranslateInProgress(true);
-      setProgressPercent(1);
-      const tempSysPrompt = translationMethod === "llm" ? sysPrompt : undefined;
-      const tempUserPrompt = translationMethod === "llm" ? userPrompt : undefined;
-      const testResult = await testTranslation(translationMethod, config, tempSysPrompt, tempUserPrompt);
-      if (testResult !== true) {
-        let errorMessage;
-        switch (translationMethod) {
-          case "deeplx":
-            errorMessage = t("deepLXUnavailable");
-            setTranslationMethod(DEFAULT_API);
-            break;
-          case "deepl":
-            errorMessage = t("deeplUnavailable");
-            break;
-          case "llm":
-            errorMessage = t("llmUnavailable");
-            break;
-          case "gtxFreeAPI":
-            errorMessage = "GTX Free 接口当前不可用，请检查您的网络连接。The free Google Translate API (GTX) is currently unavailable. Please check your network connection.";
-            break;
-          default:
-            errorMessage = t("translationError");
-        }
-        message.open({
-          type: "error",
-          content: errorMessage,
-          duration: 10,
-        });
-
-        setTranslateInProgress(false);
-        return false;
-      }
-      setTranslateInProgress(false);
-    }
-
     return true;
   };
 

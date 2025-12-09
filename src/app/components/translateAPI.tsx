@@ -3,29 +3,7 @@ import { message } from "antd";
 import SparkMD5 from "spark-md5";
 import { languages } from "./languages";
 
-export const TRANSLATION_SERVICES = [
-  { value: "server", label: "Server" },
-  { value: "gtxFreeAPI", label: "GTX API (Free)" },
-  {
-    value: "google",
-    label: "Google Translate",
-    docs: "https://cloud.google.com/translate/docs/basic/translate-text-basic",
-  },
-  { value: "deepl", label: "DeepL", docs: "https://developers.deepl.com/docs/api-reference/translate" },
-  { value: "azure", label: "Azure Translate", docs: "https://learn.microsoft.com/zh-cn/azure/ai-services/translator/reference/v3-0-translate" },
-  { value: "deeplx", label: "DeepLX (Free)", docs: "https://deeplx.owo.network/endpoints/free.html" },
-  { value: "deepseek", label: "DeepSeek", docs: "https://api-docs.deepseek.com/zh-cn/" },
-  { value: "openai", label: "OpenAI", docs: "https://platform.openai.com/docs/api-reference/chat" },
-  {
-    value: "azureopenai",
-    label: "Azure OpenAI",
-    docs: "https://learn.microsoft.com/zh-cn/azure/ai-services/openai/concepts/models",
-  },
-  { value: "siliconflow", label: "SiliconFlow", docs: "https://docs.siliconflow.cn/api-reference/chat-completions/chat-completions" },
-  { value: "groq", label: "Groq", docs: "https://console.groq.com/docs/text-chat" },
-  { value: "llm", label: "Custom LLM" },
-  //{ value: "webgoogletranslate", label: "GTX Web (Free&Slow)" },
-];
+export const TRANSLATION_SERVICES = [{ value: "server", label: "Server" }];
 
 export const findMethodLabel = (method) => {
   const service = TRANSLATION_SERVICES.find((s) => s.value === method);
@@ -34,15 +12,9 @@ export const findMethodLabel = (method) => {
 
 type TranslationMethod = (typeof TRANSLATION_SERVICES)[number]["value"];
 
-export const LLM_MODELS = ["deepseek", "openai", "azureopenai", "siliconflow", "groq", "llm"];
+export const LLM_MODELS: string[] = [];
 
-export const categorizedOptions = [
-  ...TRANSLATION_SERVICES.filter((s) => !LLM_MODELS.includes(s.value)),
-  {
-    label: "AI LLM Models",
-    options: TRANSLATION_SERVICES.filter((s) => LLM_MODELS.includes(s.value)),
-  },
-];
+export const categorizedOptions = [...TRANSLATION_SERVICES];
 
 export const defaultConfigs = {
   server: {
@@ -50,76 +22,6 @@ export const defaultConfigs = {
     limit: 20, // used as context window size on server
     model: "gpt-4o-mini", // overrideable in UI
     temperature: 0.2,
-  },
-  gtxFreeAPI: {
-    limit: 100,
-  },
-  deeplx: {
-    url: "",
-    chunkSize: 1000,
-    delayTime: 200,
-    limit: 10,
-  },
-  deepl: {
-    url: "",
-    apiKey: "",
-    chunkSize: 128000,
-    delayTime: 200,
-    limit: 20,
-  },
-  deepseek: {
-    apiKey: "",
-    model: "deepseek-chat",
-    temperature: 0.3,
-    limit: 30,
-  },
-  openai: {
-    apiKey: "",
-    model: "gpt-5-mini",
-    temperature: 0.3,
-    limit: 30,
-  },
-  azureopenai: {
-    url: "",
-    apiKey: "",
-    model: "gpt-5-mini",
-    apiVersion: "2025-08-07",
-    temperature: 0.3,
-    limit: 30,
-  },
-  siliconflow: {
-    apiKey: "",
-    model: "deepseek-ai/DeepSeek-V3",
-    temperature: 0.3,
-    limit: 30,
-  },
-  groq: {
-    apiKey: "",
-    model: "openai/gpt-oss-20b",
-    temperature: 0.3,
-    limit: 30,
-  },
-  llm: {
-    url: "http://127.0.0.1:11434/v1/chat/completions",
-    apiKey: "",
-    model: "llama3.2",
-    temperature: 0.3,
-    limit: 20,
-  },
-  azure: {
-    apiKey: "",
-    chunkSize: 10000,
-    delayTime: 200,
-    region: "eastasia",
-    limit: 100,
-  },
-  google: {
-    apiKey: "",
-    delayTime: 200,
-    limit: 100,
-  },
-  webgoogletranslate: {
-    limit: 1,
   },
 } as const;
 

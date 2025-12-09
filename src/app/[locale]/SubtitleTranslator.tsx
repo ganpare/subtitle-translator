@@ -5,7 +5,6 @@ import { Flex, Card, Button, Typography, Input, Upload, Form, Space, message, Se
 import { CopyOutlined, DownloadOutlined, InboxOutlined, UploadOutlined } from "@ant-design/icons";
 import { splitTextIntoLines, getTextStats, downloadFile } from "@/app/utils";
 import { VTT_SRT_TIME, LRC_TIME_REGEX, detectSubtitleFormat, getOutputFileExtension, filterSubLines, convertTimeToAss, assHeader } from "./subtitleUtils";
-import { categorizedOptions, findMethodLabel, LLM_MODELS } from "@/app/components/translateAPI";
 import { useLanguageOptions, filterLanguageOption } from "@/app/components/languages";
 import { useCopyToClipboard } from "@/app/hooks/useCopyToClipboard";
 import useFileUpload from "@/app/hooks/useFileUpload";
@@ -617,21 +616,6 @@ const SubtitleTranslator = () => {
         </Paragraph>
       )}
       <Form layout="inline" labelWrap className="gap-1 mb-2">
-        <Form.Item label={t("translationAPI")}>
-          <Space.Compact>
-            <Select showSearch value={translationMethod} onChange={(e) => setTranslationMethod(e)} options={categorizedOptions} style={{ minWidth: 150 }} />
-            {config?.apiKey !== undefined && translationMethod !== "llm" && (
-              <Tooltip title={`${t("enter")} ${findMethodLabel(translationMethod)} API Key`}>
-                <Input.Password
-                  autoComplete="off"
-                  placeholder={`API Key ${findMethodLabel(translationMethod)} `}
-                  value={config.apiKey}
-                  onChange={(e) => handleConfigChange(translationMethod, "apiKey", e.target.value)}
-                />
-              </Tooltip>
-            )}
-          </Space.Compact>
-        </Form.Item>
         <Form.Item label={t("sourceLanguage")}>
           <Select
             value={sourceLanguage}
@@ -731,18 +715,6 @@ const SubtitleTranslator = () => {
                 {t("singleFileMode")}
               </Checkbox>
             </Tooltip>
-            <Tooltip title={t("useCacheTooltip")}>
-              <Checkbox checked={useCache} onChange={(e) => setUseCache(e.target.checked)}>
-                {t("useCache")}
-              </Checkbox>
-            </Tooltip>
-            {LLM_MODELS.includes(translationMethod) && (
-              <Tooltip title={t("contextAwareTranslationTooltip")}>
-                <Checkbox checked={contextAwareTranslation} onChange={(e) => setContextAwareTranslation(e.target.checked)}>
-                  {t("contextAwareTranslation")}
-                </Checkbox>
-              </Tooltip>
-            )}
             <Tooltip title={t("multiLanguageModeTooltip")}>
               <Switch checked={multiLanguageMode} onChange={(checked) => setMultiLanguageMode(checked)} checkedChildren={t("multiLanguageMode")} unCheckedChildren={t("singleLanguageMode")} />
             </Tooltip>
@@ -753,19 +725,18 @@ const SubtitleTranslator = () => {
         <Button
           type="primary"
           block
-          onClick={async () =>
-            translationMethod === "server"
-              ? (selectedServerFileIds && selectedServerFileIds.length > 0
-                  ? (await confirmOverwriteIfNeeded()) &&
-                    handleServerTranslate(selectedServerFileIds, {
-                      bilingualSubtitle,
-                      bilingualPosition,
-                    })
-                  : messageApi.error("Please select a server file"))
-              : uploadMode === "single"
-              ? handleTranslate(performTranslation, sourceText, contextAwareTranslation)
-              : handleMultipleTranslate()
-          }
+          onClick={async () => {
+            if (!selectedServerFileIds || selectedServerFileIds.length === 0) {
+              messageApi.error("Please select a server file");
+              return;
+            }
+            const ok = await confirmOverwriteIfNeeded();
+            if (!ok) return;
+            handleServerTranslate(selectedServerFileIds, {
+              bilingualSubtitle,
+              bilingualPosition,
+            });
+          }}
           disabled={translateInProgress}>
           {multiLanguageMode ? `${t("translate")} | ${t("totalLanguages")}${target_langs.length || 0}` : t("translate")}
         </Button>
