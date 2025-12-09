@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Flex, Card, Button, Typography, Input, Upload, Form, Space, message, Select, Modal, Checkbox, Progress, Tooltip, Radio, Switch, Spin, Table, Tag } from "antd";
-import { CopyOutlined, DownloadOutlined, InboxOutlined, UploadOutlined } from "@ant-design/icons";
+import { CopyOutlined, InboxOutlined } from "@ant-design/icons";
 import { splitTextIntoLines, getTextStats, downloadFile } from "@/app/utils";
 import { VTT_SRT_TIME, LRC_TIME_REGEX, detectSubtitleFormat, getOutputFileExtension, filterSubLines, convertTimeToAss, assHeader } from "./subtitleUtils";
 import { useLanguageOptions, filterLanguageOption } from "@/app/components/languages";
@@ -38,12 +38,7 @@ const SubtitleTranslator = () => {
     resetUpload,
   } = useFileUpload();
   const {
-    exportSettings,
-    importSettings,
     translationMethod,
-    setTranslationMethod,
-    translateContent,
-    handleTranslate,
     handleServerTranslate,
     getCurrentConfig,
     handleConfigChange,
@@ -51,8 +46,6 @@ const SubtitleTranslator = () => {
     targetLanguage,
     target_langs,
     setTarget_langs,
-    useCache,
-    setUseCache,
     multiLanguageMode,
     setMultiLanguageMode,
     translatedText,
@@ -79,7 +72,6 @@ const SubtitleTranslator = () => {
 
   const [bilingualSubtitle, setBilingualSubtitle] = useState(false);
   const [bilingualPosition, setBilingualPosition] = useState("below"); // 'above' or 'below'
-  const [contextAwareTranslation, setContextAwareTranslation] = useState(true); // 上下文感知翻译开关
   const { token, baseUrl } = useAuth();
   const [serverFiles, setServerFiles] = useState<any[]>([]);
   const [serverFilesOffset, setServerFilesOffset] = useState<number>(0);
@@ -740,24 +732,6 @@ const SubtitleTranslator = () => {
           disabled={translateInProgress}>
           {multiLanguageMode ? `${t("translate")} | ${t("totalLanguages")}${target_langs.length || 0}` : t("translate")}
         </Button>
-        <Tooltip title={t("exportSettingTooltip")}>
-          <Button
-            icon={<DownloadOutlined />}
-            onClick={async () => {
-              await exportSettings();
-            }}>
-            {t("exportSetting")}
-          </Button>
-        </Tooltip>
-        <Tooltip title={t("importSettingTooltip")}>
-          <Button
-            icon={<UploadOutlined />}
-            onClick={async () => {
-              await importSettings();
-            }}>
-            {t("importSetting")}
-          </Button>
-        </Tooltip>
         <Tooltip title={t("resetUploadTooltip")}>
           <Button
             onClick={() => {
