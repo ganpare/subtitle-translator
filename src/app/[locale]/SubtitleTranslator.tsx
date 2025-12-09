@@ -103,7 +103,7 @@ const SubtitleTranslator = () => {
   }, [sourceText, setExtractedText, setTranslatedText]);
 
   // Fetch server files for current user when in server mode
-  const PAGE_SIZE = 100;
+  const PAGE_SIZE = 500;
   const fetchServerFiles = useCallback(async (offset: number = 0, append: boolean = false) => {
     if (translationMethod !== "server" || !token) return;
     try {

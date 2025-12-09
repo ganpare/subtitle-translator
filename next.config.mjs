@@ -8,9 +8,9 @@ const internalHost = process.env.TAURI_DEV_HOST;
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   basePath: "",
-  // Ensure Next.js uses SSG instead of SSR
+  // Ensure Next.js uses SSG instead of SSR for production
   // https://nextjs.org/docs/pages/building-your-application/deploying/static-exports
-  output: "export",
+  output: isProd ? "export" : undefined,
   // Note: This feature is required to use the Next.js Image component in SSG mode.
   // See https://nextjs.org/docs/messages/export-image-api for different workarounds.
   images: {

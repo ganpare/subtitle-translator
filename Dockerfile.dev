@@ -1,0 +1,17 @@
+FROM node:20-slim
+
+WORKDIR /app
+
+# パッケージファイルをコピー
+COPY package*.json yarn.lock* ./
+
+# 依存関係をインストール（corepack経由、既存のyarnと衝突しない）
+RUN corepack enable && yarn install --frozen-lockfile
+
+# アプリケーションコードをコピー
+COPY . .
+
+# 開発サーバーを起動
+EXPOSE 3004
+
+CMD ["npm", "run", "dev", "--", "-p", "3004"]
