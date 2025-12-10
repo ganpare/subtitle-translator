@@ -18,7 +18,7 @@ export const categorizedOptions = [...TRANSLATION_SERVICES];
 
 export const defaultConfigs = {
   server: {
-    url: "http://localhost:4000",
+    url: process.env.NEXT_PUBLIC_SERVER_URL || "http://localhost:4000",
     limit: 20, // used as context window size on server
     model: "gpt-4o-mini", // overrideable in UI
     temperature: 0.2,
